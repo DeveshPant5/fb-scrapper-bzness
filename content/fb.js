@@ -177,6 +177,33 @@
     );
   }
 
+  function classifyLink(rawHref) {
+    const href = unwrapLink(rawHref);
+    if (!href) return null;
+    if (/^mailto:/i.test(href)) {
+      const e = decodeSafe(href.slice(7).split('?')[0]).trim();
+      return EMAIL_ONE.test(e) ? { type: 'email', value: e } : null;
+    }
+    if (/^tel:/i.test(href)) {
+      const t = cleanLine(decodeSafe(href.slice(4)));
+      return digitCount(t) >= 7 ? { type: 'phone', value: t } : null;
+    }
+    let u;
+    try { u = new URL(href); } catch { return null; }
+    const host = u.hostname.toLowerCase();
+    if (u.protocol === 'whatsapp:' || /^(wa\.me|api\.whatsapp\.com|web\.whatsapp\.com|(www\.)?whatsapp\.com)$/.test(host)) {
+      let digits = '';
+      if (host === 'wa.me') digits = (u.pathname.match(/^\/(\d{7,15})\b/) || [])[1] || '';
+      else digits = (u.searchParams.get('phone') || '').replace(/\D/g, '');
+      return digits.length >= 7 && digits.length <= 15 ? { type: 'whatsapp', value: '+' + digits } : null;
+    }
+    if (!/^https?:$/.test(u.protocol) || FB_HOSTS.test(host)) return null;
+    if (/(^|\.)instagram\.com$/.test(host)) return { type: 'instagram', value: cleanUrl(u.href) };
+    if (isMapUrl(u)) return { type: 'map', value: cleanUrl(u.href) };
+    if (SOCIAL_HOSTS.test(host)) return { type: 'social', value: cleanUrl(u.href) };
+    return { type: 'web', value: cleanUrl(u.href) };
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -184,5 +211,6 @@
     isPhoneLike,
     isUrlLike,
     isAddressLike,
+    classifyLink,
   };
 })();
