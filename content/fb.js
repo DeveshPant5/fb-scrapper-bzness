@@ -331,6 +331,42 @@
       }
     }
 
+    // Unlabelled values inside the contact sections (main page "Intro" card).
+    for (const i of [...scope].sort((a, b) => a - b)) {
+      if (assigned.has(i)) continue;
+      const l = lines[i];
+      if (/^Page\s*[·•]/i.test(l) || EMAIL_ONE.test(l)) continue;
+      if (isPhoneLike(l)) { addValue(r, 'phones', l); continue; }
+      if (isUrlLike(l)) {
+        const c = classifyLink(/^https?:\/\//i.test(l) ? l : 'https://' + l);
+        if (c && c.type === 'web') addValue(r, 'websites', c.value);
+        else if (c && c.type === 'instagram') addValue(r, 'instagram', c.value);
+        else if (c && c.type === 'social') addValue(r, 'otherLinks', c.value);
+        continue;
+      }
+      if (!r.address && isAddressLike(l)) r.address = l;
+    }
+
+    // Emails anywhere in the visible text.
+    for (const e of all.match(EMAIL_G) || []) {
+      const v = e.replace(/\.+$/, '');
+      if (!IMG_EXT.test(v)) addValue(r, 'emails', v);
+    }
+
+    // Intro / bio: the first line of the "Intro" card when it's free text.
+    const introAt = lines.findIndex((l) => /^Intro$/i.test(l));
+    if (introAt >= 0 && lines[introAt + 1]) {
+      const l = lines[introAt + 1];
+      if (l.length >= 15 && !/^Page\s*[·•]/i.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
+        r.intro = l;
+      }
+    }
+
+    // A personal profile, not a business page: never stored.
+    r.isPersonal =
+      !r.category &&
+      lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
+
     return r;
   }
 
