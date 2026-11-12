@@ -96,9 +96,36 @@
     return `${canon.replace(/\/+$/, '')}/about_contact_and_basic_info`;
   }
 
+  // ------------------------------------------------------- text patterns
+
+  const EMAIL_G = /[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*\.[A-Z]{2,}/gi;
+  const EMAIL_ONE = /^[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*\.[A-Z]{2,}$/i;
+  const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+  const COUNT = String.raw`(\d[\d.,]*\s?[KMB]?)`;
+
+  const digitCount = (s) => (s.match(/\d/g) || []).length;
+
+  function isPhoneLike(s) {
+    s = cleanLine(s);
+    if (!/^\+?[\d(][\d\s\-().]{5,22}\d$/.test(s)) return false;
+    const d = digitCount(s);
+    if (d < 7 || d > 15) return false;
+    if (/^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}$/.test(s)) return false; // a date
+    return true;
+  }
+
+  function isUrlLike(s) {
+    return (
+      !/\s|@/.test(s) &&
+      /^(https?:\/\/)?(www\.)?[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?(\/\S*)?$/i.test(s)
+    );
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
     aboutUrl,
+    isPhoneLike,
+    isUrlLike,
   };
 })();
