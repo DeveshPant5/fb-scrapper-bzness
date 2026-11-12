@@ -68,3 +68,76 @@ test('classifyLink unwraps l.facebook.com and recognises WhatsApp/Instagram/maps
   assert.equal(F.classifyLink('https://www.facebook.com/sunrisedental/photos'), null);
 });
 
+test('parseProfile reads an About → Contact and basic info page', () => {
+  const lines = [
+    'Sunrise Dental Clinic', '4.2K likes', '•', '4.5K followers',
+    'Posts', 'About', 'Mentions', 'Reviews', 'Followers', 'Photos', 'More',
+    'About', 'Intro', 'Contact and basic info', 'Privacy and legal info', 'Page transparency',
+    'Categories', 'Page · Dentist & dental office',
+    'Contact info',
+    'Shop No 4, MG Road, Kothrud, Pune, India, 411038',
+    '‪098765 43210‬', 'Mobile',
+    'info@sunrisedental.in', 'Email',
+    'Websites and social links',
+    'sunrisedental.in', 'Website',
+    'sunrise_dental', 'Instagram',
+    '+91 98765 43210', 'WhatsApp',
+    'Basic info', 'Price range', '$$', 'Rating · 4.8 (56 Reviews)',
+  ];
+  const links = [
+    { href: 'https://l.facebook.com/l.php?u=https%3A%2F%2Fsunrisedental.in%2F&h=x', text: 'sunrisedental.in' },
+    { href: 'https://www.instagram.com/sunrise_dental', text: 'sunrise_dental' },
+    { href: 'https://www.facebook.com/sunrisedental/followers', text: '4.5K followers' },
+    { href: 'https://l.facebook.com/l.php?u=https%3A%2F%2Fexample-news.com%2Fstory', text: 'Some news story' },
+  ];
+  const r = F.parseProfile({ lines, links, h1: 'Sunrise Dental Clinic', title: '(3) Sunrise Dental Clinic | Facebook' });
+
+  assert.equal(r.isPersonal, false);
+  assert.equal(r.name, 'Sunrise Dental Clinic');
+  assert.equal(r.category, 'Dentist & dental office');
+  assert.equal(r.likes, '4.2K');
+  assert.equal(r.followers, '4.5K');
+  assert.equal(r.rating, '4.8 (56 reviews)');
+  assert.deepEqual(r.emails, ['info@sunrisedental.in']);
+  assert.deepEqual(r.phones, ['098765 43210']);
+  assert.deepEqual(r.whatsapp, ['+91 98765 43210']);
+  assert.deepEqual(r.websites, ['https://sunrisedental.in/']);
+  assert.deepEqual(r.instagram, ['https://www.instagram.com/sunrise_dental']);
+  assert.equal(r.address, 'Shop No 4, MG Road, Kothrud, Pune, India, 411038');
+});
+
+test('parseProfile reads the unlabelled Intro card on a page home tab', () => {
+  const lines = [
+    'Green Leaf Cafe', '1.1K likes • 1.3K followers',
+    'Posts', 'About', 'Reviews', 'Photos',
+    'Intro',
+    'Cosy vegetarian cafe serving breakfast all day.',
+    'Page · Cafe',
+    '12 Baker Street, London, NW1 6XE',
+    '+44 20 7946 0958',
+    'hello@greenleaf.co.uk',
+    'greenleaf.co.uk',
+    'Rating · 4.6 (210 Reviews)',
+    'Photos', 'See all photos',
+    'Posts', 'Call us at 020 1234 5678 for bookings, 12-05-2024',
+  ];
+  const r = F.parseProfile({ lines, h1: 'Green Leaf Cafe' });
+  assert.equal(r.category, 'Cafe');
+  assert.equal(r.intro, 'Cosy vegetarian cafe serving breakfast all day.');
+  assert.equal(r.address, '12 Baker Street, London, NW1 6XE');
+  assert.deepEqual(r.phones, ['+44 20 7946 0958']);
+  assert.deepEqual(r.emails, ['hello@greenleaf.co.uk']);
+  assert.deepEqual(r.websites, ['https://greenleaf.co.uk/']);
+  assert.equal(r.rating, '4.6 (210 reviews)');
+  assert.equal(r.likes, '1.1K');
+  assert.equal(r.followers, '1.3K');
+});
+
+test('parseProfile flags personal profiles so they are never stored', () => {
+  const r = F.parseProfile({
+    lines: ['Rahul Sharma', '1.2K friends', 'Add friend', 'Message', 'Posts', 'About', 'Friends', 'Photos'],
+    h1: 'Rahul Sharma',
+  });
+  assert.equal(r.isPersonal, true);
+});
+
