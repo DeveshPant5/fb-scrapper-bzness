@@ -370,6 +370,41 @@
     return r;
   }
 
+  function mergeParsed(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const r = emptyParsed();
+    LIST_FIELDS.forEach((f) => [...a[f], ...b[f]].forEach((v) => addValue(r, f, v)));
+    TEXT_FIELDS.forEach((f) => (r[f] = a[f] || b[f]));
+    r.isPersonal = a.isPersonal || b.isPersonal;
+    return r;
+  }
+
+  const hasContact = (d) =>
+    !!d && (d.emails.length || d.phones.length || d.whatsapp.length || d.websites.length) > 0;
+
+  function toRecord(canon, d) {
+    const j = (arr) => arr.join(' | ');
+    return {
+      key: canon.toLowerCase(),
+      pageUrl: canon,
+      name: d.name,
+      category: d.category,
+      email: j(d.emails),
+      phone: j(d.phones),
+      whatsapp: j(d.whatsapp),
+      website: j(d.websites),
+      address: d.address,
+      likes: d.likes,
+      followers: d.followers,
+      rating: d.rating,
+      instagram: j(d.instagram),
+      otherLinks: j(d.otherLinks),
+      intro: d.intro,
+      scrapedAt: new Date().toISOString(),
+    };
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -379,5 +414,8 @@
     isAddressLike,
     classifyLink,
     parseProfile,
+    mergeParsed,
+    hasContact,
+    toRecord,
   };
 })();

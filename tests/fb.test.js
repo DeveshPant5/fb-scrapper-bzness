@@ -141,3 +141,14 @@ test('parseProfile flags personal profiles so they are never stored', () => {
   assert.equal(r.isPersonal, true);
 });
 
+test('mergeParsed + toRecord combine two visits without duplicates', () => {
+  const a = F.parseProfile({ lines: ['Contact info', '098765 43210', 'Mobile'], h1: 'Biz' });
+  const b = F.parseProfile({ lines: ['Intro', 'Page · Shop', '+91 98765 43210', 'shop@biz.in'], h1: 'Biz' });
+  const m = F.mergeParsed(a, b);
+  assert.deepEqual(m.phones, ['098765 43210']); // same number, different format
+  assert.equal(m.category, 'Shop');
+  const rec = F.toRecord('https://www.facebook.com/Biz', m);
+  assert.equal(rec.key, 'https://www.facebook.com/biz');
+  assert.equal(rec.email, 'shop@biz.in');
+  assert.ok(F.hasContact(m));
+});
