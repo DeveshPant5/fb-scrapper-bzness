@@ -231,6 +231,24 @@
     r[field].push(v);
   }
 
+  // Section headings that start / end the parts of the page that hold contact details.
+  const SECTION_START = /^(Intro|Categor(?:y|ies)|Contact info|Websites and social links)$/i;
+  const SECTION_STOP = /^(Basic info|Privacy and legal info|Page transparency|Photos|Featured|Posts|Reviews|Life events|Details|Places lived|Family and relationships|Work and education|See all photos|Videos|Reels|Mentions|Followers|Following)$/i;
+
+  /** Line indexes inside the contact sections (falls back to the first 80 lines). */
+  function scopeIndexes(lines) {
+    const idx = new Set();
+    for (let i = 0; i < lines.length; i++) {
+      if (!SECTION_START.test(lines[i])) continue;
+      for (let j = i + 1; j < Math.min(lines.length, i + 31); j++) {
+        if (SECTION_START.test(lines[j]) || SECTION_STOP.test(lines[j])) break;
+        idx.add(j);
+      }
+    }
+    if (!idx.size) for (let j = 0; j < Math.min(lines.length, 80); j++) idx.add(j);
+    return idx;
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
