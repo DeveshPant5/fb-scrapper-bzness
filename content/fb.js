@@ -121,11 +121,22 @@
     );
   }
 
+  function isAddressLike(s) {
+    if (s.length < 8 || s.length > 250) return false;
+    if (s.includes('@') || isUrlLike(s) || isPhoneLike(s)) return false;
+    if (/[·•]|\b(likes?|followers?|following|reviews?|rating|recommend|open now|closed now|hours|price range|always open)\b/i.test(s)) return false;
+    const comma = s.includes(',');
+    const postcode = /\b\d{5,6}\b/.test(s) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/.test(s);
+    const street = /\b(road|rd|street|st|avenue|ave|lane|ln|nagar|sector|floor|plot|near|opp|opposite|building|bldg|marg|chowk|colony|block|suite|blvd|boulevard|highway|hwy|market|complex|tower|plaza|square|park|mall)\b/i.test(s);
+    return (comma && (postcode || street || /\d/.test(s))) || (postcode && street);
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
     aboutUrl,
     isPhoneLike,
     isUrlLike,
+    isAddressLike,
   };
 })();
