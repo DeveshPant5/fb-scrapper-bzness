@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "FB Page Scraper",
+  "version": "1.0.0",
+  "description": "Collect public contact details (email, phone, WhatsApp, website, address) from Facebook business pages and export them to CSV.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "scripting", "unlimitedStorage"],
+  "host_permissions": ["https://*.facebook.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open FB Page Scraper"
+  }
+}
