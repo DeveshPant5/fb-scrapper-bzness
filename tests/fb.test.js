@@ -45,3 +45,12 @@ test('aboutUrl points at the Contact and basic info tab', () => {
   );
 });
 
+test('phone detection rejects counts and dates', () => {
+  for (const ok of ['+91 98765 43210', '098765 43210', '(022) 2345 6789', '‪+1 415-555-0132‬', '919876543210']) {
+    assert.ok(F.isPhoneLike(ok), ok);
+  }
+  for (const bad of ['4.2K', '12,345', '2015', '12-05-2020', '1234', 'Call now']) {
+    assert.ok(!F.isPhoneLike(bad), bad);
+  }
+});
+
