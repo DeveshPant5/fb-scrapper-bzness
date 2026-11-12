@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FB Page Scraper</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icons/icon48.png" alt="" width="28" height="28"><span>FB Page Scraper</span></div>
+    <div class="stat"><strong id="recordCount">0</strong> pages saved</div>
+  </header>
+
+  <main class="layout">
+    <section class="card" id="setupCard">
+      <h2>1. Find pages</h2>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-mode="keyword" role="tab" aria-selected="true">Keyword search</button>
+        <button class="tab" data-mode="urls" role="tab" aria-selected="false">Page URLs</button>
+      </div>
+
+      <div class="mode-panel" data-panel="keyword">
+        <label for="keyword">Search keyword</label>
+        <input id="keyword" type="text" placeholder="e.g. dentist in Pune" autocomplete="off">
+        <p class="hint">Runs a Facebook Pages search and collects the results.</p>
+      </div>
+
+      <div class="mode-panel" data-panel="urls" hidden>
+        <label for="urls">Facebook page URLs (one per line)</label>
+        <textarea id="urls" rows="7" spellcheck="false"
+          placeholder="https://www.facebook.com/examplebusiness&#10;https://www.facebook.com/profile.php?id=100012345678"></textarea>
+        <p class="hint">Tip: click the extension icon while viewing a Facebook page to add it here.</p>
+      </div>
+
+      <div class="settings">
+        <label>Max pages
+          <input id="limit" type="number" min="1" max="1000" value="50">
+        </label>
+        <label>Delay between pages (sec)
+          <input id="delay" type="number" min="3" max="120" value="6">
+        </label>
+        <label class="check"><input id="skipExisting" type="checkbox" checked> Skip pages already in the Data Report</label>
+        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: also open each page's home tab (adds intro &amp; rating, slower)</label>
+      </div>
+
+      <div class="actions">
+        <button id="startBtn" class="btn primary">Start</button>
+        <button id="stopBtn" class="btn" disabled>Stop</button>
+        <span id="flash" class="flash" role="status"></span>
+      </div>
+      <p class="note">Stay logged in to Facebook in this browser. A separate window opens and visits each page.
+        Keep it visible while the job runs. Personal profiles are skipped automatically.</p>
+    </section>
+
+    <section class="card" id="progressCard">
+      <h2>2. Progress</h2>
+      <div id="statusText" class="status">Idle.</div>
+      <div class="progress"><div id="progressBar"></div></div>
+      <div class="counters">
+        <span>Done <b id="cDone">0</b> / <b id="cTotal">0</b></span>
+        <span class="ok">Saved <b id="cSaved">0</b></span>
+        <span>Skipped <b id="cSkipped">0</b></span>
+        <span class="bad">Failed <b id="cFailed">0</b></span>
+      </div>
+      <div id="currentUrl" class="current"></div>
+      <details open>
+        <summary>Activity log</summary>
+        <ol id="log" class="log"></ol>
+      </details>
+    </section>
+
+    <section class="card wide" id="reportCard">
+      <div class="report-head">
+        <h2>3. Data report</h2>
+        <input id="filter" type="search" placeholder="Filter rows…">
+        <button id="exportBtn" class="btn primary">Export CSV</button>
+        <button id="clearBtn" class="btn danger">Clear data</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Page</th><th>Category</th><th>Email</th><th>Phone</th><th>WhatsApp</th>
+              <th>Website</th><th>Address</th><th>Followers</th><th>Likes</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p id="tableNote" class="hint"></p>
+    </section>
+  </main>
+
+  <script src="content/fb.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
