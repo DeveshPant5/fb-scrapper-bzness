@@ -475,6 +475,44 @@
     return { data, finalUrl: location.href };
   }
 
+  /** On a facebook.com/search/pages/?q=… tab: scroll and collect page URLs. */
+  async function collectSearchResults(limit, skipKeys = [], maxIdleRounds = 5) {
+    const skip = new Set(skipKeys);
+    const found = new Map();
+
+    await waitFor(() => document.querySelector('[role="main"] a[href]'), 15000);
+
+    let idle = 0;
+    for (let round = 0; round < 300 && found.size < limit && idle < maxIdleRounds; round++) {
+      const blocked = detectBlock();
+      if (blocked) return { blocked, urls: [...found.values()] };
+
+      const root = document.querySelector('[role="feed"]') || document.querySelector('[role="main"]') || document.body;
+      const before = found.size;
+      for (const a of root.querySelectorAll('a[href]')) {
+        const text = cleanLine(a.innerText);
+        if (!text || text.length > 150) continue;
+        // Skip "Rahul and 3 friends like this"-style links to people.
+        const ctx = cleanLine((a.parentElement && a.parentElement.parentElement && a.parentElement.parentElement.innerText) || '');
+        if (ctx.length > text.length + 4 && /\b(like|likes|follow|follows) this\b|mutual friends?/i.test(ctx)) continue;
+        const url = normalizePageUrl(a.href);
+        if (!url) continue;
+        const key = url.toLowerCase();
+        if (skip.has(key) || found.has(key)) continue;
+        found.set(key, { url, name: text });
+        if (found.size >= limit) break;
+      }
+      idle = found.size === before ? idle + 1 : 0;
+
+      const tail = (root.innerText || '').slice(-400);
+      if (/End of results|No results found|We didn['’]t find any results/i.test(tail)) break;
+
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await sleep(2000);
+    }
+    return { urls: [...found.values()].slice(0, limit) };
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -489,5 +527,6 @@
     toRecord,
     detectBlock,
     extractPageData,
+    collectSearchResults,
   };
 })();
