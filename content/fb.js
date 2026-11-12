@@ -204,6 +204,33 @@
     return { type: 'web', value: cleanUrl(u.href) };
   }
 
+  // --------------------------------------------------------- parsing
+
+  const LIST_FIELDS = ['emails', 'phones', 'whatsapp', 'websites', 'instagram', 'otherLinks'];
+  const TEXT_FIELDS = ['name', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+
+  function valueKey(field, v) {
+    const s = String(v).trim().toLowerCase();
+    if (field === 'phones' || field === 'whatsapp') return s.replace(/\D/g, '').slice(-10);
+    if (field === 'emails') return s;
+    return s.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
+
+  function emptyParsed() {
+    const r = { isPersonal: false };
+    LIST_FIELDS.forEach((f) => (r[f] = []));
+    TEXT_FIELDS.forEach((f) => (r[f] = ''));
+    return r;
+  }
+
+  function addValue(r, field, v) {
+    v = cleanLine(v);
+    if (!v) return;
+    const k = valueKey(field, v);
+    if (!k || r[field].some((x) => valueKey(field, x) === k)) return;
+    r[field].push(v);
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
