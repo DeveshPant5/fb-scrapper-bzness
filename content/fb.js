@@ -131,6 +131,52 @@
     return (comma && (postcode || street || /\d/.test(s))) || (postcode && street);
   }
 
+  // ----------------------------------------------------------- links
+
+  const FB_HOSTS = /(^|\.)(facebook\.com|fb\.com|fb\.me|fb\.watch|fbcdn\.net|messenger\.com|m\.me|meta\.com)$/i;
+  const SOCIAL_HOSTS = /(^|\.)(twitter\.com|x\.com|youtube\.com|youtu\.be|linkedin\.com|tiktok\.com|pinterest\.[a-z.]+|t\.me|telegram\.me|snapchat\.com|threads\.net)$/i;
+
+  function cleanUrl(href) {
+    try {
+      const u = new URL(href);
+      ['fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach((k) =>
+        u.searchParams.delete(k)
+      );
+      return u.href;
+    } catch {
+      return href;
+    }
+  }
+
+  /** Undo Facebook's l.facebook.com/l.php?u=… redirect wrapper. */
+  function unwrapLink(href) {
+    try {
+      const u = new URL(href, FB);
+      if (/^(l|lm)\.facebook\.com$/i.test(u.hostname) && u.pathname.startsWith('/l.php')) {
+        const target = u.searchParams.get('u');
+        return target ? cleanUrl(target) : null;
+      }
+      return u.protocol.startsWith('http') ? cleanUrl(u.href) : u.href;
+    } catch {
+      return null;
+    }
+  }
+
+  function isMapUrl(u) {
+    const h = u.hostname.toLowerCase();
+    const p = u.pathname;
+    return (
+      (/(^|\.)bing\.com$/.test(h) && /^\/maps/i.test(p)) ||
+      (/(^|\.)google\.[a-z.]+$/.test(h) && /^\/maps/i.test(p)) ||
+      /^maps\.google\./.test(h) ||
+      h === 'maps.app.goo.gl' ||
+      (h === 'goo.gl' && /^\/maps/.test(p)) ||
+      h === 'maps.apple.com' ||
+      /(^|\.)here\.com$/.test(h) ||
+      /(^|\.)openstreetmap\.org$/.test(h)
+    );
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
