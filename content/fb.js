@@ -249,6 +249,41 @@
     return idx;
   }
 
+  /**
+   * Pure function: turns the visible text lines + links of a Facebook page into fields.
+   * @param {{lines: string[], links?: {href: string, text: string}[], h1?: string, title?: string}} input
+   */
+  function parseProfile({ lines, links = [], h1 = '', title = '' }) {
+    lines = lines.map(cleanLine).filter(Boolean);
+    const r = emptyParsed();
+    const all = lines.join('\n');
+    const scope = scopeIndexes(lines);
+    const scopeText = new Set([...scope].map((i) => lines[i]));
+    const assigned = new Set();
+
+    // Name
+    r.name = cleanLine(h1) ||
+      cleanLine(title).replace(/^\(\d+\+?\)\s*/, '').replace(/\s*[|·-]\s*Facebook\s*$/i, '').replace(/^Facebook$/i, '');
+
+    // Header counts and rating
+    let m;
+    if ((m = all.match(new RegExp(COUNT + String.raw`\s+(?:likes?\b|people like this)`, 'i')))) r.likes = m[1].replace(/\s/g, '');
+    if ((m = all.match(new RegExp(COUNT + String.raw`\s+(?:followers\b|people follow this)`, 'i')))) r.followers = m[1].replace(/\s/g, '');
+    if ((m = all.match(/Rating\s*[·•]\s*([\d.]+)\s*\(([\d,.]+\s*K?)\s*Reviews?\)/i))) r.rating = `${m[1]} (${m[2].trim()} reviews)`;
+    else if ((m = all.match(/(\d{1,3}%\s*recommend)\s*\(([\d,.]+\s*K?)\s*Reviews?\)/i))) r.rating = `${m[1].replace(/\s+/g, ' ')} (${m[2].trim()} reviews)`;
+    else {
+      const line = lines.find((l) => /^[0-5](\.\d)?\s*\(([\d,.]+\s*K?)\s*reviews?\)$/i.test(l));
+      if (line) r.rating = line.replace(/reviews?/i, 'reviews');
+    }
+
+    // Category ("Page · Dentist & dental office")
+    for (const l of lines) {
+      if ((m = l.match(/^Page\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
+    }
+
+    return r;
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -257,5 +292,6 @@
     isUrlLike,
     isAddressLike,
     classifyLink,
+    parseProfile,
   };
 })();
