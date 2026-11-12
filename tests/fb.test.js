@@ -54,3 +54,17 @@ test('phone detection rejects counts and dates', () => {
   }
 });
 
+test('classifyLink unwraps l.facebook.com and recognises WhatsApp/Instagram/maps', () => {
+  assert.deepEqual(
+    F.classifyLink('https://l.facebook.com/l.php?u=https%3A%2F%2Fsunrisedental.in%2F%3Ffbclid%3Dabc&h=AT0'),
+    { type: 'web', value: 'https://sunrisedental.in/' }
+  );
+  assert.deepEqual(F.classifyLink('https://wa.me/919876543210'), { type: 'whatsapp', value: '+919876543210' });
+  assert.deepEqual(F.classifyLink('https://api.whatsapp.com/send?phone=919876543210'), { type: 'whatsapp', value: '+919876543210' });
+  assert.equal(F.classifyLink('https://wa.me/message/ABC123XYZ'), null);
+  assert.equal(F.classifyLink('https://www.instagram.com/sunrise_dental').type, 'instagram');
+  assert.equal(F.classifyLink('https://www.bing.com/maps/default.aspx?v=2&where1=Pune').type, 'map');
+  assert.deepEqual(F.classifyLink('mailto:info@sunrisedental.in'), { type: 'email', value: 'info@sunrisedental.in' });
+  assert.equal(F.classifyLink('https://www.facebook.com/sunrisedental/photos'), null);
+});
+
