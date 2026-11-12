@@ -249,6 +249,17 @@
     return idx;
   }
 
+  // On "Contact and basic info" each value is followed by a small label.
+  const LABELS = [
+    ['whatsapp', /^whatsapp$/i],
+    ['phones', /^(mobile|phone|work|home|main|office|landline|telephone|tel)$/i],
+    ['emails', /^e-?mail$/i],
+    ['websites', /^websites?$/i],
+    ['address', /^address$/i],
+    ['instagram', /^instagram$/i],
+    ['category', /^categor(?:y|ies)$/i],
+  ];
+
   /**
    * Pure function: turns the visible text lines + links of a Facebook page into fields.
    * @param {{lines: string[], links?: {href: string, text: string}[], h1?: string, title?: string}} input
@@ -294,6 +305,30 @@
       else if (c.type === 'instagram') addValue(r, 'instagram', c.value);
       else if (c.type === 'social') addValue(r, 'otherLinks', c.value);
       else if (c.type === 'map' && !r.address && t.length > 5 && !isPhoneLike(t)) r.address = t;
+    }
+
+    // Labelled values ("+91 98765 43210" followed by "WhatsApp").
+    for (let i = 0; i < lines.length - 1; i++) {
+      const v = lines[i];
+      const label = lines[i + 1];
+      for (const [field, re] of LABELS) {
+        if (!re.test(label)) continue;
+        let ok = false;
+        if (field === 'phones' || field === 'whatsapp') ok = isPhoneLike(v);
+        else if (field === 'emails') ok = EMAIL_ONE.test(v);
+        else if (field === 'websites') ok = isUrlLike(v);
+        else if (field === 'instagram') ok = /^@?[\w.]{2,30}$/.test(v) || /instagram\.com\//i.test(v);
+        else if (field === 'address') ok = v.length >= 5 && v.length <= 250 && !isPhoneLike(v) && !EMAIL_ONE.test(v) && !isUrlLike(v);
+        else if (field === 'category') ok = v.length <= 120;
+        if (!ok) continue;
+        assigned.add(i);
+        if (field === 'address') { if (!r.address) r.address = v; }
+        else if (field === 'category') { if (!r.category) r.category = v.replace(/^Page\s*[·•]\s*/i, ''); }
+        else if (field === 'websites') addValue(r, 'websites', /^https?:\/\//i.test(v) ? v : 'https://' + v);
+        else if (field === 'instagram') addValue(r, 'instagram', /instagram\.com\//i.test(v) ? v : `https://www.instagram.com/${v.replace(/^@/, '')}`);
+        else addValue(r, field, v);
+        break;
+      }
     }
 
     return r;
