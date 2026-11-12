@@ -281,6 +281,21 @@
       if ((m = l.match(/^Page\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
     }
 
+    // Links: mail/tel/WhatsApp anywhere; websites, socials and maps only from the contact sections.
+    for (const { href, text } of links) {
+      const c = classifyLink(href);
+      if (!c) continue;
+      const t = cleanLine(text);
+      if (c.type === 'email') addValue(r, 'emails', c.value);
+      else if (c.type === 'phone') addValue(r, 'phones', c.value);
+      else if (c.type === 'whatsapp') addValue(r, 'whatsapp', c.value);
+      else if (!scopeText.has(t)) continue;
+      else if (c.type === 'web') addValue(r, 'websites', c.value);
+      else if (c.type === 'instagram') addValue(r, 'instagram', c.value);
+      else if (c.type === 'social') addValue(r, 'otherLinks', c.value);
+      else if (c.type === 'map' && !r.address && t.length > 5 && !isPhoneLike(t)) r.address = t;
+    }
+
     return r;
   }
 
