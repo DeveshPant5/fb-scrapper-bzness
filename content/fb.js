@@ -437,6 +437,44 @@
     return /this content isn[’']t available|this page isn[’']t available|the link you followed may be broken|page not found/i.test(t);
   }
 
+  /** Reads the currently loaded page/profile tab. */
+  async function extractPageData() {
+    let blocked = detectBlock();
+    if (blocked) return { blocked };
+
+    const root = await waitFor(() => {
+      const m = document.querySelector('[role="main"]');
+      return m && (m.querySelector('h1') || looksNotFound(m)) ? m : null;
+    });
+    blocked = detectBlock();
+    if (blocked) return { blocked };
+
+    const main = root || document.querySelector('[role="main"]') || document.body;
+    if (looksNotFound(main)) return { notFound: true };
+
+    // Nudge lazy-loaded sections, then wait for the text to stop changing.
+    window.scrollTo(0, Math.min(900, document.documentElement.scrollHeight));
+    await sleep(900);
+    window.scrollTo(0, 0);
+    let prev = -1;
+    for (let i = 0; i < 8; i++) {
+      const len = main.innerText.length;
+      if (len === prev) break;
+      prev = len;
+      await sleep(600);
+    }
+
+    const lines = main.innerText.split('\n');
+    const links = Array.from(main.querySelectorAll('a[href]'), (a) => ({
+      href: a.href,
+      text: cleanLine(a.innerText || a.getAttribute('aria-label') || ''),
+    }));
+    const h1 = (main.querySelector('h1') || {}).innerText || '';
+    const data = parseProfile({ lines, links, h1, title: document.title });
+    if (data.isPersonal) return { isPersonal: true };
+    return { data, finalUrl: location.href };
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -450,5 +488,6 @@
     hasContact,
     toRecord,
     detectBlock,
+    extractPageData,
   };
 })();
