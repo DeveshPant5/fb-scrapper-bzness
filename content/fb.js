@@ -405,6 +405,38 @@
     };
   }
 
+  // ------------------------------------------- DOM (Facebook tab only)
+
+  async function waitFor(fn, timeout = 12000, step = 400) {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      try {
+        const v = fn();
+        if (v) return v;
+      } catch { /* keep waiting */ }
+      await sleep(step);
+    }
+    return null;
+  }
+
+  /** 'login' | 'checkpoint' | 'rate_limited' | null */
+  function detectBlock() {
+    const href = location.href;
+    if (/\/checkpoint\b|\/two_step_verification|\/captcha/i.test(href)) return 'checkpoint';
+    if (/facebook\.com\/(login(\.php)?|recover)\b/i.test(href)) return 'login';
+    if (!document.querySelector('[role="main"]') && document.querySelector('input[name="pass"]')) return 'login';
+    const text = ((document.body && document.body.innerText) || '').slice(0, 5000);
+    if (/temporarily blocked|you can[’']t use this feature right now|temporarily restricted|we limit how often|misusing this feature by going too fast/i.test(text)) {
+      return 'rate_limited';
+    }
+    return null;
+  }
+
+  function looksNotFound(el) {
+    const t = ((el && el.innerText) || '').slice(0, 1500);
+    return /this content isn[’']t available|this page isn[’']t available|the link you followed may be broken|page not found/i.test(t);
+  }
+
   globalThis.FBScraper = {
     normalizePageUrl,
     pageKey,
@@ -417,5 +449,6 @@
     mergeParsed,
     hasContact,
     toRecord,
+    detectBlock,
   };
 })();
