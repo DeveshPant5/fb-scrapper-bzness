@@ -32,6 +32,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // --------------------------------------------------------------- helpers
 
+async function interruptibleSleep(ms) {
+  const end = Date.now() + ms;
+  while (!stopRequested && Date.now() < end) await sleep(Math.min(250, end - Date.now()));
+}
+
 async function openWorker(scr) {
   const opts = { url: 'about:blank', focused: true, type: 'normal' };
   if (scr && scr.width > 900 && scr.height > 500) {
@@ -88,5 +93,51 @@ async function visitAndExtract(tabId, url) {
   const res = await runInTab(tabId, () => globalThis.FBScraper.extractPageData());
   if (!res) throw new Error('Page did not load');
   return res;
+}
+
+async function scrapeOne(tabId, url, s) {
+  const canon = FBS.normalizePageUrl(url);
+  if (!canon) return { error: 'not a Facebook page URL' };
+
+  let merged = null;
+  const a = await visitAndExtract(tabId, FBS.aboutUrl(canon));
+  if (a.blocked) return { blocked: a.blocked };
+  if (a.isPersonal) return { skipped: 'personal profile, not a business page' };
+  if (a.data) merged = a.data;
+
+  // Home tab: always in thorough mode, otherwise only when the About tab gave nothing useful.
+  if (s.thorough || !FBS.hasContact(merged)) {
+    if (stopRequested) return { stopped: true };
+    await interruptibleSleep(1500);
+    const b = await visitAndExtract(tabId, canon);
+    if (b.blocked) return { blocked: b.blocked };
+    if (b.isPersonal) return { skipped: 'personal profile, not a business page' };
+    if (b.data) merged = FBS.mergeParsed(merged, b.data);
+  }
+
+  if (!merged) return { error: 'page not found or not available' };
+  return { record: FBS.toRecord(canon, merged) };
+}
+
+function upsertRecord(records, rec) {
+  const i = records.findIndex((r) => r.key === rec.key);
+  if (i < 0) return records.push(rec);
+  const old = records[i];
+  const merged = { ...old };
+  for (const [k, v] of Object.entries(rec)) if (v) merged[k] = v;
+  records[i] = merged;
+}
+
+function parseUrlList(urls) {
+  const seen = new Set();
+  const out = [];
+  let invalid = 0;
+  for (const raw of urls || []) {
+    const u = FBS.normalizePageUrl(raw);
+    if (!u) { invalid++; continue; }
+    const k = u.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); out.push(u); }
+  }
+  return { urls: out, invalid };
 }
 
