@@ -6,12 +6,7 @@
   const FBS = globalThis.FBScraper;
   const MAX_ROWS = 500;
 
-  const CSV_COLUMNS = [
-    ['name', 'Page Name'], ['category', 'Category'], ['email', 'Email'], ['phone', 'Phone'],
-    ['whatsapp', 'WhatsApp'], ['website', 'Website'], ['address', 'Address'], ['likes', 'Likes'],
-    ['followers', 'Followers'], ['rating', 'Rating'], ['instagram', 'Instagram'],
-    ['otherLinks', 'Other Links'], ['intro', 'Intro'], ['pageUrl', 'Facebook URL'], ['scrapedAt', 'Scraped At'],
-  ];
+  const CSV_COLUMNS = FBS.REPORT_COLUMNS;
 
   let mode = 'keyword';
   let records = [];
@@ -110,8 +105,8 @@
 
   function cell(text, href) {
     const td = document.createElement('td');
-    const value = text || '';
-    td.title = value;
+    const value = text == null ? '' : String(text);
+    td.title = value || 'Not visible or not collected';
     if (href && /^https?:\/\//i.test(href)) {
       const a = document.createElement('a');
       a.href = href;
@@ -120,13 +115,14 @@
       a.textContent = value || href;
       td.append(a);
     } else {
-      td.textContent = value;
+      td.textContent = value || '—';
     }
     return td;
   }
 
   function renderRecords() {
     $('recordCount').textContent = records.length;
+    $('exportBtn').disabled = !records.length;
     const q = $('filter').value.trim().toLowerCase();
     const rows = records
       .slice()
@@ -138,7 +134,7 @@
       const tr = document.createElement('tr');
       tr.className = 'empty';
       const td = document.createElement('td');
-      td.colSpan = 9;
+      td.colSpan = CSV_COLUMNS.length;
       td.textContent = records.length ? 'No rows match the filter.' : 'No data yet. Start a job to collect pages.';
       tr.append(td);
       body.replaceChildren(tr);
@@ -146,18 +142,11 @@
       body.replaceChildren(
         ...rows.slice(0, MAX_ROWS).map((r) => {
           const tr = document.createElement('tr');
-          const site = (r.website || '').split(' | ')[0];
-          tr.append(
-            cell(r.name || r.pageUrl, r.pageUrl),
-            cell(r.category),
-            cell(r.email),
-            cell(r.phone),
-            cell(r.whatsapp),
-            cell(r.website, site),
-            cell(r.address),
-            cell(r.followers),
-            cell(r.likes)
-          );
+          tr.append(...CSV_COLUMNS.map(([key]) => {
+            const href = key === 'name' || key === 'pageUrl' ? r.pageUrl
+              : key === 'website' || key === 'instagram' ? (r[key] || '').split(' | ')[0] : '';
+            return cell(key === 'name' ? r.name || r.pageUrl : r[key], href);
+          }));
           return tr;
         })
       );
@@ -168,18 +157,9 @@
 
   // ---------------------------------------------------------------- CSV
 
-  function csvCell(value, key) {
-    let s = value == null ? '' : String(value);
-    // Stop spreadsheet apps from running scraped text as a formula.
-    if (/^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && key !== 'phone' && key !== 'whatsapp')) s = `'${s}`;
-    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }
-
   function exportCsv() {
     if (!records.length) return flash('Nothing to export yet.');
-    const lines = [CSV_COLUMNS.map(([, h]) => h).join(',')];
-    for (const r of records) lines.push(CSV_COLUMNS.map(([k]) => csvCell(r[k], k)).join(','));
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([FBS.toCsv(records)], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `facebook-pages-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.csv`;
@@ -241,6 +221,12 @@
   // --------------------------------------------------------------- init
 
   async function init() {
+    $('reportColumns').replaceChildren(...CSV_COLUMNS.map(([, label]) => {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = label;
+      return th;
+    }));
     const data = await chrome.storage.local.get(['settings', 'records', 'job', 'prefillUrl']);
     applySettings(data.settings || {});
     records = data.records || [];

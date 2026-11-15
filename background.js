@@ -169,38 +169,37 @@ async function scrapeOne(tabId, url, s) {
   if (!canon) return { error: 'not a Facebook page URL' };
 
   let merged = null;
-  const a = await visitAndExtract(tabId, FBS.aboutUrl(canon));
-  if (a.blocked) return { blocked: a.blocked };
-  if (a.data) merged = a.data;
-
-  if (!FBS.hasContact(merged)) {
+  const tabs = ['about_contact_and_basic_info', 'about', 'about_family_and_relationships', 'about_places'];
+  for (const tab of tabs) {
+    if (tab === 'about_family_and_relationships' && (merged?.profileType === 'Page' || merged?.relationshipStatus)) continue;
+    if (tab === 'about_places' && (merged?.profileType === 'Page' || merged?.location)) continue;
     if (stopRequested) return { stopped: true };
-    await interruptibleSleep(1500);
-    const about = await visitAndExtract(tabId, FBS.aboutUrl(canon, 'about'));
-    if (about.blocked) return { blocked: about.blocked };
-    if (about.data) merged = FBS.mergeParsed(merged, about.data);
+    if (tab !== tabs[0]) await interruptibleSleep(1500);
+    if (stopRequested) return { stopped: true };
+    const result = await visitAndExtract(tabId, FBS.aboutUrl(canon, tab));
+    if (result.blocked) return { blocked: result.blocked };
+    if (result.data) merged = FBS.mergeParsed(merged, result.data);
   }
 
-  // Home tab: always in thorough mode, otherwise only when the About tab gave nothing useful.
-  if (s.thorough || !FBS.hasContact(merged)) {
+  // Home fills the bio too; About tabs often expose only structured details.
+  if (s.thorough || !FBS.hasContact(merged) || !merged.intro) {
     if (stopRequested) return { stopped: true };
     await interruptibleSleep(1500);
+    if (stopRequested) return { stopped: true };
     const b = await visitAndExtract(tabId, canon);
     if (b.blocked) return { blocked: b.blocked };
     if (b.data) merged = FBS.mergeParsed(merged, b.data);
   }
 
-  if (!merged) return { error: 'page not found or not available' };
+  if (!merged || !merged.name) return { error: 'page not found or not available' };
   return { record: FBS.toRecord(canon, merged) };
 }
 
 function upsertRecord(records, rec) {
   const i = records.findIndex((r) => r.key === rec.key);
   if (i < 0) return records.push(rec);
-  const old = records[i];
-  const merged = { ...old };
-  for (const [k, v] of Object.entries(rec)) if (v) merged[k] = v;
-  records[i] = merged;
+  // Replace scraped fields so hidden or removed details cannot stay as current data.
+  records[i] = { ...records[i], ...rec };
 }
 
 function parseUrlList(urls) {
@@ -328,6 +327,7 @@ async function runJob(p, s) {
       job.failed++;
       log(`Failed ${url}: ${result.error}`, 'error');
     } else {
+      result.record.sourceQuery = p.mode === 'keyword' ? p.keyword.trim() : '';
       upsertRecord(records, result.record);
       await chrome.storage.local.set({ records });
       job.saved++;

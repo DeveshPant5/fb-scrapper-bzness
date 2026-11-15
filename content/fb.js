@@ -186,7 +186,7 @@
     }
     if (/^tel:/i.test(href)) {
       const t = cleanLine(decodeSafe(href.slice(4)));
-      return digitCount(t) >= 7 ? { type: 'phone', value: t } : null;
+      return isPhoneLike(t) ? { type: 'phone', value: t } : null;
     }
     let u;
     try { u = new URL(href); } catch { return null; }
@@ -207,11 +207,21 @@
   // --------------------------------------------------------- parsing
 
   const LIST_FIELDS = ['emails', 'phones', 'whatsapp', 'websites', 'instagram', 'otherLinks'];
-  const TEXT_FIELDS = ['name', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+  const TEXT_FIELDS = ['name', 'profileType', 'age', 'gender', 'relationshipStatus', 'location', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+
+  const REPORT_COLUMNS = [
+    ['name', 'Name'], ['profileType', 'Profile Type'], ['age', 'Age'], ['gender', 'Gender'],
+    ['relationshipStatus', 'Relationship Status'], ['location', 'Current Location'],
+    ['category', 'Category'], ['email', 'Email'], ['phone', 'Phone'], ['whatsapp', 'WhatsApp'],
+    ['website', 'Website'], ['address', 'Address'], ['likes', 'Likes (displayed)'],
+    ['followers', 'Followers (displayed)'], ['rating', 'Rating'], ['instagram', 'Instagram'],
+    ['otherLinks', 'Other Links'], ['intro', 'Bio / Intro'], ['pageUrl', 'Facebook URL'],
+    ['sourceQuery', 'Source Search'], ['scrapedAt', 'Scraped At (UTC)'],
+  ];
 
   function valueKey(field, v) {
     const s = String(v).trim().toLowerCase();
-    if (field === 'phones' || field === 'whatsapp') return s.replace(/\D/g, '').slice(-10);
+    if (field === 'phones' || field === 'whatsapp') return s.replace(/\D/g, '');
     if (field === 'emails') return s;
     return s.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
   }
@@ -234,18 +244,26 @@
   // Section headings that start / end the parts of the page that hold contact details.
   const SECTION_START = /^(Intro|Bio|Details|Categor(?:y|ies)|Contact(?: and basic)? info(?:rmation)?|Contact details|Websites?(?: and social links)?|Social links)$/i;
   const SECTION_STOP = /^(Basic info|Privacy and legal info|Page transparency|Photos|Featured|Posts|Reviews|Life events|Places lived|Family and relationships|Work and education|See all photos|Videos|Reels|Mentions|Followers|Following|Friends)$/i;
+  const DETAIL_START = /^(Intro|Bio|Details|Overview|Basic info|Personal details|Contact and basic info|Places lived|Family and relationships|Relationship(?: status)?)$/i;
+  const DETAIL_FIELDS = new Set(['age', 'birthDate', 'birthYear', 'gender', 'relationshipStatus', 'location']);
+  const RELATIONSHIP = /^(Single|In a relationship|Engaged|Married|In a civil union|In a domestic partnership|In an open relationship|It['’]s complicated|Separated|Divorced|Widowed)(?=$|\s+(?:with|to|since)\b)/i;
 
   /** Line indexes inside the contact sections (falls back to the first 80 lines). */
-  function scopeIndexes(lines) {
+  function scopeIndexes(lines, starts = SECTION_START) {
     const idx = new Set();
     for (let i = 0; i < lines.length; i++) {
-      if (!SECTION_START.test(lines[i])) continue;
+      if (!starts.test(lines[i])) continue;
       for (let j = i + 1; j < lines.length; j++) {
-        if (SECTION_START.test(lines[j]) || SECTION_STOP.test(lines[j])) break;
+        if (starts.test(lines[j]) || SECTION_STOP.test(lines[j])) break;
         idx.add(j);
       }
     }
-    if (!idx.size) for (let j = 0; j < Math.min(lines.length, 80); j++) idx.add(j);
+    if (!idx.size) {
+      for (let j = 0; j < Math.min(lines.length, 80); j++) {
+        if (/^(Posts|Photos|Reviews|Reels|Videos)$/i.test(lines[j])) break;
+        idx.add(j);
+      }
+    }
     return idx;
   }
 
@@ -258,7 +276,30 @@
     ['address', /^address$/i],
     ['instagram', /^instagram$/i],
     ['category', /^categor(?:y|ies)$/i],
+    ['age', /^age$/i],
+    ['birthDate', /^(birthday|birth date|date of birth)$/i],
+    ['birthYear', /^birth year$/i],
+    ['gender', /^gender$/i],
+    ['relationshipStatus', /^(relationship(?: status)?|marital status)$/i],
+    ['location', /^(current city|current location|location)$/i],
   ];
+
+  /** Calculate age only from a full, unambiguous, explicitly labelled birth date. */
+  function ageFromBirthDate(value, today = new Date()) {
+    const text = cleanLine(value);
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const named = text.match(/^(?:([A-Za-z]+)\s+(\d{1,2}),?|(?:(\d{1,2})\s+([A-Za-z]+)))\s+(\d{4})$/);
+    if (!iso && !named) return '';
+    const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+    const year = Number(iso ? iso[1] : named[5]);
+    const month = iso ? Number(iso[2]) - 1 : months.indexOf((named[1] || named[4]).toLowerCase());
+    const day = Number(iso ? iso[3] : named[2] || named[3]);
+    const born = new Date(Date.UTC(year, month, day));
+    if (month < 0 || born.getUTCFullYear() !== year || born.getUTCMonth() !== month || born.getUTCDate() !== day) return '';
+    let age = today.getUTCFullYear() - year;
+    if (today.getUTCMonth() < month || (today.getUTCMonth() === month && today.getUTCDate() < day)) age--;
+    return born <= today && age >= 0 && age <= 120 ? String(age) : '';
+  }
 
   /**
    * Pure function: turns the visible text lines + links of a Facebook page into fields.
@@ -269,8 +310,11 @@
     const r = emptyParsed();
     const all = lines.join('\n');
     const scope = scopeIndexes(lines);
+    const details = scopeIndexes(lines, DETAIL_START);
     const scopeText = new Set([...scope].map((i) => lines[i]));
     const assigned = new Set();
+    let birthDate = '';
+    let birthYear = '';
 
     // Name
     r.name = cleanLine(h1) ||
@@ -289,18 +333,22 @@
 
     // Pages and professional profiles expose categories in the header.
     for (const l of lines) {
-      if ((m = l.match(/^(?:Page|Profile)\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
+      if ((m = l.match(/^(Page|Profile)\s*[·•]\s*(.+)$/i))) {
+        r.profileType = /^page$/i.test(m[1]) ? 'Page' : 'Profile';
+        r.category = m[2].trim();
+        break;
+      }
     }
 
-    // Links: mail/tel/WhatsApp anywhere; websites, socials and maps only from the contact sections.
+    // Keep contact links inside profile sections, away from posts and comments.
     for (const { href, text } of links) {
       const c = classifyLink(href);
       if (!c) continue;
       const t = cleanLine(text);
+      if (!scopeText.has(t) && !String(text || '').split('\n').some((l) => scopeText.has(cleanLine(l)))) continue;
       if (c.type === 'email') addValue(r, 'emails', c.value);
       else if (c.type === 'phone') addValue(r, 'phones', c.value);
       else if (c.type === 'whatsapp') addValue(r, 'whatsapp', c.value);
-      else if (!scopeText.has(t) && !String(text || '').split('\n').some((l) => scopeText.has(cleanLine(l)))) continue;
       else if (c.type === 'web') addValue(r, 'websites', c.value);
       else if (c.type === 'instagram') addValue(r, 'instagram', c.value);
       else if (c.type === 'social') addValue(r, 'otherLinks', c.value);
@@ -313,8 +361,12 @@
       const label = inline ? inline[1].trim() : lines[i];
       for (const [field, re] of LABELS) {
         if (!re.test(label)) continue;
+        const indexes = DETAIL_FIELDS.has(field) ? details : scope;
+        if (!indexes.has(i) && !SECTION_START.test(label) && !DETAIL_START.test(label)) continue;
         const candidates = inline ? [[i, inline[2]]] : [[i - 1, lines[i - 1]], [i + 1, lines[i + 1]]];
-        for (const [index, v] of candidates) {
+        for (const [index, raw] of candidates) {
+          let v = raw;
+          if (!indexes.has(index)) continue;
           if (!v || assigned.has(index) || SECTION_START.test(v) || SECTION_STOP.test(v) || /^(About|More)$/i.test(v) || LABELS.some(([, pattern]) => pattern.test(v))) continue;
           let ok = false;
           if (field === 'phones' || field === 'whatsapp') ok = isPhoneLike(v);
@@ -323,10 +375,25 @@
           else if (field === 'instagram') ok = /^@?[\w.]{2,30}$/.test(v) || /instagram\.com\//i.test(v);
           else if (field === 'address') ok = v.length >= 5 && v.length <= 250 && !isPhoneLike(v) && !EMAIL_ONE.test(v) && !isUrlLike(v);
           else if (field === 'category') ok = v.length <= 120;
+          else if (field === 'age') {
+            v = v.replace(/\s+years?\s+old$/i, '');
+            ok = /^(?:\d|[1-9]\d|1[01]\d|120)$/.test(v);
+          }
+          else if (field === 'birthDate') ok = !!ageFromBirthDate(v) || /^(?:[A-Za-z]+\s+\d{1,2}|\d{1,2}\s+[A-Za-z]+)$/.test(v);
+          else if (field === 'birthYear') ok = /^\d{4}$/.test(v);
+          else if (field === 'gender') ok = /^(female|male|woman|man|non[- ]?binary|agender|genderfluid|genderqueer|(?:trans|transgender|cis|cisgender)(?: (?:woman|man|female|male))?|other|custom|prefer not to say)$/i.test(v);
+          else if (field === 'relationshipStatus') {
+            v = (v.match(RELATIONSHIP) || [])[1] || '';
+            ok = !!v;
+          }
+          else if (field === 'location') ok = v.length >= 2 && v.length <= 250 && !isPhoneLike(v) && !EMAIL_ONE.test(v) && !isUrlLike(v);
           if (!ok) continue;
           assigned.add(index);
           if (field === 'address') { if (!r.address) r.address = v; }
           else if (field === 'category') { if (!r.category) r.category = v.replace(/^(?:Page|Profile)\s*[·•]\s*/i, ''); }
+          else if (field === 'birthDate') { if (!birthDate) birthDate = v; }
+          else if (field === 'birthYear') { if (!birthYear) birthYear = v; }
+          else if (DETAIL_FIELDS.has(field)) { if (!r[field]) r[field] = v; }
           else if (field === 'websites') addValue(r, 'websites', /^https?:\/\//i.test(v) ? v : 'https://' + v);
           else if (field === 'instagram') addValue(r, 'instagram', /instagram\.com\//i.test(v) ? v : `https://www.instagram.com/${v.replace(/^@/, '')}`);
           else addValue(r, field, v);
@@ -335,6 +402,8 @@
         break;
       }
     }
+
+    if (!r.age && birthDate) r.age = ageFromBirthDate(birthDate) || ageFromBirthDate(`${birthDate} ${birthYear}`);
 
     // Unlabelled values inside the contact sections (main page "Intro" card).
     for (const i of [...scope].sort((a, b) => a - b)) {
@@ -352,15 +421,22 @@
       if (!r.address && isAddressLike(l)) r.address = l;
     }
 
-    // Emails anywhere in the visible text.
-    for (const e of all.match(EMAIL_G) || []) {
+    // Emails from profile contact sections, excluding post and comment text.
+    for (const e of [...scope].map((i) => lines[i]).join('\n').match(EMAIL_G) || []) {
       const v = e.replace(/\.+$/, '');
       if (!IMG_EXT.test(v)) addValue(r, 'emails', v);
     }
 
+    for (const i of details) {
+      const l = lines[i];
+      if (!r.location && (m = l.match(/^(?:Lives in|Based in)\s+(.+)$/i))) r.location = m[1].trim();
+      if (!r.age && (m = l.match(/^(\d{1,3})\s+years?\s+old$/i)) && Number(m[1]) <= 120) r.age = String(Number(m[1]));
+      if (!r.relationshipStatus && /^Relationship(?: status)?$/i.test(lines[i - 1] || '') && (m = l.match(RELATIONSHIP))) r.relationshipStatus = m[1];
+    }
+
     // Intro / bio: the first line of the "Intro" card when it's free text.
     const introAt = lines.findIndex((l) => /^(Intro|Bio)$/i.test(l));
-    if (introAt >= 0 && lines[introAt + 1]) {
+    if (introAt >= 0 && lines[introAt + 1] && !assigned.has(introAt + 1)) {
       const l = lines[introAt + 1];
       if (l.length >= 15 && !/^(?:Page|Profile)\s*[·•]/i.test(l) && !SECTION_START.test(l) && !SECTION_STOP.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
         r.intro = l;
@@ -371,6 +447,7 @@
     r.isPersonal =
       !r.category &&
       lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
+    if (r.isPersonal && !r.profileType) r.profileType = 'Profile';
 
     return r;
   }
@@ -394,6 +471,11 @@
       key: canon.toLowerCase(),
       pageUrl: canon,
       name: d.name,
+      profileType: d.profileType,
+      age: d.age,
+      gender: d.gender,
+      relationshipStatus: d.relationshipStatus,
+      location: d.location,
       category: d.category,
       email: j(d.emails),
       phone: j(d.phones),
@@ -406,8 +488,22 @@
       instagram: j(d.instagram),
       otherLinks: j(d.otherLinks),
       intro: d.intro,
+      sourceQuery: '',
       scrapedAt: new Date().toISOString(),
     };
+  }
+
+  function csvCell(value, key) {
+    let s = value == null ? '' : String(value);
+    const phone = (key === 'phone' || key === 'whatsapp') && s.split(' | ').every(isPhoneLike);
+    if (/^[\t\r\n]/.test(s) || (/^\s*[=+\-@]/.test(s) && !phone)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function toCsv(records) {
+    const rows = [REPORT_COLUMNS.map(([, header]) => header).join(',')];
+    for (const record of records) rows.push(REPORT_COLUMNS.map(([key]) => csvCell(record[key], key)).join(','));
+    return '\uFEFF' + rows.join('\r\n');
   }
 
   // ------------------------------------------- DOM (Facebook tab only)
@@ -469,8 +565,14 @@
       await sleep(600);
     }
 
-    const lines = main.innerText.split('\n');
-    const links = Array.from(main.querySelectorAll('a[href]'), (a) => ({
+    let profileText = main.innerText;
+    for (const article of main.querySelectorAll('[role="article"]')) {
+      const text = article.innerText || '';
+      const index = text ? profileText.lastIndexOf(text) : -1;
+      if (index >= 0) profileText = profileText.slice(0, index) + profileText.slice(index + text.length);
+    }
+    const lines = profileText.split('\n');
+    const links = Array.from(main.querySelectorAll('a[href]')).filter((a) => !a.closest('[role="article"]')).map((a) => ({
       href: a.href,
       text: a.innerText || a.getAttribute('aria-label') || '',
     }));
@@ -521,6 +623,7 @@
     normalizePageUrl,
     pageKey,
     aboutUrl,
+    ageFromBirthDate,
     isPhoneLike,
     isUrlLike,
     isAddressLike,
@@ -529,6 +632,8 @@
     mergeParsed,
     hasContact,
     toRecord,
+    REPORT_COLUMNS,
+    toCsv,
     detectBlock,
     extractPageData,
     collectSearchResults,

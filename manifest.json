@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FB Page Scraper",
   "version": "1.0.0",
-  "description": "Export public contact details from Facebook pages and profiles to CSV: email, phone, WhatsApp, website, and address.",
+  "description": "Collect visible profile and contact details from Facebook pages and profiles, with structured CSV export.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "unlimitedStorage"],
   "host_permissions": ["https://*.facebook.com/*"],

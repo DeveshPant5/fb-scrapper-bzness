@@ -93,6 +93,7 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .report-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
 .report-head h2 { margin: 0 auto 0 0; }
 .report-head input { max-width: 240px; }
+#reportCard > .hint { margin: 0 0 10px; }
 
 .table-wrap { overflow: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: 8px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }

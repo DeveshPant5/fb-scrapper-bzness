@@ -1,8 +1,9 @@
 # FB Page Scraper (Chrome extension)
 
 Collects public contact details from Facebook **pages and public profiles**, including companies,
-organizations, creators, and people. Exports name, category, email, phone, WhatsApp, website,
-address, likes, followers, rating, and Instagram to CSV.
+organizations, creators, and people. Collects name, age, gender, relationship status, current
+location, category, email, phone, WhatsApp, website, address, audience counts, bio, and social
+links, and exports them in a consistent CSV format.
 
 ## Install
 
@@ -19,8 +20,8 @@ You must be logged in to facebook.com in the same Chrome profile.
 - **Profile / page URLs**: paste one URL per line. Clicking the extension icon while viewing a
   Facebook page or profile adds it to the list. Paste direct URLs when a target does not appear in search.
 - **Max profiles / pages / Delay**: how many entries per run and how long to wait between them (minimum 3 s).
-- **Thorough mode**: also opens each page's home tab to pick up the intro text and rating. This
-  adds a page load even when an About tab already has contact details.
+- **Thorough mode**: always opens the home tab for additional bio and rating details. Without it,
+  the home tab is visited when About has no bio or contact details.
 - **Export CSV**: downloads everything in the Data Report (UTF-8, opens in Excel or Google Sheets).
 
 A separate window opens and does the browsing. Keep it visible (not minimised) while a job runs,
@@ -34,11 +35,39 @@ because Facebook doesn't render content in hidden windows.
 | `content/fb.js` | Injected into Facebook tabs. Reads the visible text and links of a page and turns them into fields. |
 | `dashboard.*` | The UI. Sends start/stop commands and renders progress and data from storage. |
 
-For each page the extension opens `/about_contact_and_basic_info`, where Facebook shows labelled
-contact details. If that tab has no contact details, it tries the general `/about` tab, then the home
-tab. Extraction relies on visible text and link patterns, not Facebook's CSS class names, which
-change frequently. Labels before, after, or inline with values are supported, along with Intro,
-Bio, Details, and contact sections.
+For each target the extension reads `/about_contact_and_basic_info` and `/about`. For profiles,
+it also reads `/about_family_and_relationships` when relationship status is missing and
+`/about_places` when current location is missing. Pages skip these personal-profile tabs.
+The home tab fills missing bio or contact details and is always visited in thorough mode.
+More profile tabs mean more page loads per target.
+
+Extraction uses visible text, labelled fields, and links. It supports labels before, after,
+or inline with values. Post articles and their links are removed before parsing profile details.
+
+## Profile fields and export format
+
+The report and CSV share the same 21 columns, with one row per profile or page:
+
+| Fields | Format and source |
+|---|---|
+| Name, Profile Type | Displayed name; `Page` or `Profile` when identifiable. |
+| Age | Whole years, from an explicit age or a complete labelled birth date. Separate birthday and birth-year fields can be combined. Missing years and ambiguous numeric dates remain blank. Birth dates are not saved or exported. |
+| Gender | Recognized, explicitly displayed English gender values; preserved as displayed. |
+| Relationship Status | Explicit status such as Single or Married; partner names are excluded. |
+| Current Location | Explicit current city, current location, or Lives in / Based in text. Hometown is not treated as current location. |
+| Category, Bio / Intro, Address | Displayed profile description and address; address stays separate from current city. |
+| Email, Phone, WhatsApp, Website, Instagram, Other Links | Multiple values use ` \| ` in the same cell. Country codes are preserved; no country code is guessed for local numbers. |
+| Likes, Followers, Rating | Displayed values, including abbreviations such as `4.5K`; not precise audience measurements. |
+| Facebook URL, Source Search, Scraped At (UTC) | Canonical target URL, keyword used for the latest scrape (blank for pasted URLs), and ISO 8601 UTC timestamp. Age is current as of this scrape. |
+
+Unknown, hidden, or unsupported fields show `—` in the report and empty cells in CSV. CSV uses
+UTF-8 with a BOM, quoted fields where needed, and protection against spreadsheet formulas.
+Import phone columns as text in spreadsheet software to preserve leading `+` and zeros.
+
+Existing saved rows remain readable. To populate new fields, reload the extension, turn off
+**Skip entries already in the Data Report**, and scrape those targets again. A successful
+rescrape replaces collected fields, including clearing values no longer visible, so old
+relationship or contact details do not masquerade as the latest information.
 
 ## Built-in safeguards
 

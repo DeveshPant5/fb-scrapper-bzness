@@ -34,13 +34,27 @@ test('DOM extraction preserves multiline company contact links', async () => {
   const main = {
     innerText: 'Acme\nContact details\nVisit our site\nacme.example\nPosts\nNews story',
     querySelector: () => ({ innerText: 'Acme' }),
-    querySelectorAll: () => [
-      { href: 'https://acme.example/contact', innerText: 'Visit our site\nacme.example' },
-      { href: 'https://unrelated.example/', innerText: 'News story' },
+    querySelectorAll: (selector) => selector === '[role="article"]' ? [] : [
+      { href: 'https://acme.example/contact', innerText: 'Visit our site\nacme.example', closest: () => null },
+      { href: 'https://unrelated.example/', innerText: 'News story', closest: () => null },
     ],
   };
   const { data } = await tab(main).extractPageData();
   assert.deepEqual(Array.from(data.websites), ['https://acme.example/contact', 'https://acme.example/']);
+});
+
+test('post articles with fake profile headings cannot supply demographics or contacts', async () => {
+  const article = { innerText: 'Basic info\nAge: 29\nGender: Female\nRelationship status: Single\nPlaces lived\nLives in London\nContact info\npost@example.com' };
+  const main = {
+    innerText: 'Rahul\nIntro\nA public profile bio.\nPosts\n' + article.innerText,
+    querySelector: () => ({ innerText: 'Rahul' }),
+    querySelectorAll: (selector) => selector === '[role="article"]' ? [article] : [
+      { href: 'mailto:post@example.com', innerText: 'post@example.com', closest: () => article },
+    ],
+  };
+  const { data } = await tab(main).extractPageData();
+  for (const field of ['age', 'gender', 'relationshipStatus', 'location']) assert.equal(data[field], '');
+  assert.equal(data.emails.length, 0);
 });
 
 test('search keeps people with mutual friends and filters Facebook feature URLs', async () => {

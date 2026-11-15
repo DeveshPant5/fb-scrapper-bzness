@@ -41,7 +41,7 @@
           <input id="delay" type="number" min="3" max="120" value="6">
         </label>
         <label class="check"><input id="skipExisting" type="checkbox" checked> Skip entries already in the Data Report</label>
-        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: also open each profile or page’s home tab (adds intro &amp; rating, slower)</label>
+        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: always visit the home tab for extra bio and rating details</label>
       </div>
 
       <div class="actions">
@@ -50,7 +50,8 @@
         <span id="flash" class="flash" role="status"></span>
       </div>
       <p class="note">Stay logged in to Facebook in this browser. A separate window opens and visits each page.
-        Keep it visible while the job runs. Collects only details visible to your logged-in account; hidden contact details remain blank.</p>
+        Keep it visible while the job runs. Reads contact, About, and relevant location / relationship tabs.
+        Collects explicitly displayed details; unavailable fields remain blank.</p>
     </section>
 
     <section class="card" id="progressCard">
@@ -73,17 +74,16 @@
     <section class="card wide" id="reportCard">
       <div class="report-head">
         <h2>3. Data report</h2>
-        <input id="filter" type="search" placeholder="Filter rows…">
+        <input id="filter" type="search" placeholder="Filter any field…" aria-label="Filter profiles by any field">
         <button id="exportBtn" class="btn primary">Export CSV</button>
         <button id="clearBtn" class="btn danger">Clear data</button>
       </div>
-      <div class="table-wrap">
+      <p class="hint">Age, gender, relationship status, and location come from explicit profile details.
+        Age uses a stated age or a full birth date; missing fields show — and export as empty cells.</p>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Collected profile details">
         <table>
           <thead>
-            <tr>
-              <th>Page</th><th>Category</th><th>Email</th><th>Phone</th><th>WhatsApp</th>
-              <th>Website</th><th>Address</th><th>Followers</th><th>Likes</th>
-            </tr>
+            <tr id="reportColumns"></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>

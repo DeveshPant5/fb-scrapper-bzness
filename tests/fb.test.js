@@ -192,10 +192,100 @@ test('mergeParsed + toRecord combine two visits without duplicates', () => {
   const a = F.parseProfile({ lines: ['Contact info', '098765 43210', 'Mobile'], h1: 'Biz' });
   const b = F.parseProfile({ lines: ['Intro', 'Page · Shop', '+91 98765 43210', 'shop@biz.in'], h1: 'Biz' });
   const m = F.mergeParsed(a, b);
-  assert.deepEqual(m.phones, ['098765 43210']); // same number, different format
+  assert.deepEqual(m.phones, ['098765 43210', '+91 98765 43210']); // Keep ambiguous local/international variants.
   assert.equal(m.category, 'Shop');
   const rec = F.toRecord('https://www.facebook.com/Biz', m);
   assert.equal(rec.key, 'https://www.facebook.com/biz');
   assert.equal(rec.email, 'shop@biz.in');
   assert.ok(F.hasContact(m));
+});
+
+test('profile details read explicit age, gender, relationship status, and current location', () => {
+  for (const lines of [
+    ['Details', 'Age: 29', 'Gender: Female', 'Relationship status: Single', 'Lives in Pune, India'],
+    ['Basic info', '29', 'Age', 'Female', 'Gender', 'Family and relationships', 'Single', 'Relationship', 'Places lived', 'Pune, India', 'Current city'],
+    ['Basic info', 'Age', '29 years old', 'Gender', 'Female', 'Family and relationships', 'Relationship', 'Single', 'Places lived', 'Current city', 'Pune, India'],
+  ]) {
+    const d = F.parseProfile({ h1: 'Public Profile', lines });
+    assert.equal(d.age, '29', lines.join(' / '));
+    assert.equal(d.gender, 'Female');
+    assert.equal(d.relationshipStatus, 'Single');
+    assert.equal(d.location, 'Pune, India');
+  }
+});
+
+test('age calculation checks the birthday boundary and rejects incomplete or invalid dates', () => {
+  const today = new Date('2026-11-15T12:00:00Z');
+  for (const value of ['November 15, 1997', '15 November 1997', '1997-11-15']) {
+    assert.equal(F.ageFromBirthDate(value, today), '29');
+  }
+  assert.equal(F.ageFromBirthDate('November 16, 1997', today), '28');
+  assert.equal(F.ageFromBirthDate('February 29, 2000', new Date('2026-02-28T12:00:00Z')), '25');
+  for (const bad of ['1997', 'November 15', '11/15/1997', 'February 30, 1997', 'February 29, 1997', 'November 16, 2026', 'January 1, 1800', 'Wrongmonth 15, 1997']) {
+    assert.equal(F.ageFromBirthDate(bad, today), '', bad);
+  }
+  const d = F.parseProfile({ h1: 'Profile', lines: ['Basic info', 'November 15, 1997', 'Birth date'] });
+  assert.equal(d.age, F.ageFromBirthDate('November 15, 1997'));
+  assert.ok(!('birthDate' in F.toRecord('https://www.facebook.com/profile', d)));
+  const intro = F.parseProfile({ lines: ['Intro', 'November 15, 1997', 'Birth date'] });
+  assert.equal(intro.intro, '');
+});
+
+test('undisclosed demographics remain blank and post/comment contacts are excluded', () => {
+  const d = F.parseProfile({ h1: 'Jane', lines: [
+    'Intro', 'A public profile with no personal details.', 'Profile · Digital creator',
+    'Posts', 'Age: 29', 'Gender: Female', 'Relationship status: Single', 'Lives in London',
+    'post@example.com', 'Email: comment@example.com', 'Phone: +1 415-555-0132', 'comment.example',
+  ], links: [
+    { href: 'mailto:post@example.com', text: 'post@example.com' },
+    { href: 'tel:+14155550132', text: '+1 415-555-0132' },
+    { href: 'https://wa.me/14155550132', text: 'Chat on WhatsApp' },
+  ] });
+  for (const field of ['age', 'gender', 'relationshipStatus', 'location']) assert.equal(d[field], '');
+  assert.deepEqual(d.emails, []);
+  assert.deepEqual(d.phones, []);
+  assert.deepEqual(d.whatsapp, []);
+});
+
+test('birth dates without years and hometowns do not become ages or current cities', () => {
+  const d = F.parseProfile({ h1: 'Profile', lines: [
+    'Basic info', 'Birth date: November 15',
+    'Places lived', 'Mumbai, India', 'Hometown',
+  ] });
+  assert.equal(d.age, '');
+  assert.equal(d.location, '');
+});
+
+test('separately labelled birthday and birth year combine into an exact age', () => {
+  for (const lines of [
+    ['Basic info', 'November 15', 'Birth date', '1997', 'Birth year'],
+    ['Basic info', 'Birthday: 15 November', 'Birth year: 1997'],
+    ['Basic info', 'Birth date', 'November 15', 'Birth year', '1997'],
+  ]) {
+    const d = F.parseProfile({ h1: 'Profile', lines });
+    assert.equal(d.age, F.ageFromBirthDate('November 15, 1997'));
+    assert.ok(!('birthDate' in d));
+    assert.ok(!('birthYear' in d));
+  }
+  assert.equal(F.parseProfile({ lines: ['Basic info', 'Birth year: 1997'] }).age, '');
+});
+
+test('relationship state excludes the name of a partner', () => {
+  const d = F.parseProfile({ h1: 'Profile', lines: [
+    'Details', 'Relationship status: Married to Another Person',
+  ] });
+  assert.equal(d.relationshipStatus, 'Married');
+});
+
+test('telephone links reject malformed, oversized, and formula-like values', () => {
+  for (const value of ['tel:+1234567890123456', 'tel:+1234567+HYPERLINK("https://bad.example")', 'tel:2020-05-01']) {
+    assert.equal(F.classifyLink(value), null);
+  }
+});
+
+test('phone deduplication preserves country codes while merging spacing differences', () => {
+  const d = F.parseProfile({ lines: [
+    'Contact info', '+1 415 555 0132', '+1 (415) 555-0132', '+44 415 555 0132',
+  ] });
+  assert.deepEqual(d.phones, ['+1 415 555 0132', '+44 415 555 0132']);
 });
