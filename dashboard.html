@@ -9,39 +9,39 @@
 <body>
   <header class="topbar">
     <div class="brand"><img src="icons/icon48.png" alt="" width="28" height="28"><span>FB Page Scraper</span></div>
-    <div class="stat"><strong id="recordCount">0</strong> pages saved</div>
+    <div class="stat"><strong id="recordCount">0</strong> pages / profiles saved</div>
   </header>
 
   <main class="layout">
     <section class="card" id="setupCard">
-      <h2>1. Find pages</h2>
+      <h2>1. Find pages and profiles</h2>
       <div class="tabs" role="tablist">
         <button class="tab active" data-mode="keyword" role="tab" aria-selected="true">Keyword search</button>
-        <button class="tab" data-mode="urls" role="tab" aria-selected="false">Page URLs</button>
+        <button class="tab" data-mode="urls" role="tab" aria-selected="false">Profile / page URLs</button>
       </div>
 
       <div class="mode-panel" data-panel="keyword">
         <label for="keyword">Search keyword</label>
         <input id="keyword" type="text" placeholder="e.g. dentist in Pune" autocomplete="off">
-        <p class="hint">Runs a Facebook Pages search and collects the results.</p>
+        <p class="hint">Searches Facebook for public pages and profiles, including companies, organizations, and creators.</p>
       </div>
 
       <div class="mode-panel" data-panel="urls" hidden>
-        <label for="urls">Facebook page URLs (one per line)</label>
+        <label for="urls">Facebook page or profile URLs (one per line)</label>
         <textarea id="urls" rows="7" spellcheck="false"
           placeholder="https://www.facebook.com/examplebusiness&#10;https://www.facebook.com/profile.php?id=100012345678"></textarea>
-        <p class="hint">Tip: click the extension icon while viewing a Facebook page to add it here.</p>
+        <p class="hint">Tip: click the extension icon while viewing a Facebook page or profile to add it here.</p>
       </div>
 
       <div class="settings">
-        <label>Max pages
+        <label>Max profiles / pages
           <input id="limit" type="number" min="1" max="1000" value="50">
         </label>
-        <label>Delay between pages (sec)
+        <label>Delay between visits (sec)
           <input id="delay" type="number" min="3" max="120" value="6">
         </label>
-        <label class="check"><input id="skipExisting" type="checkbox" checked> Skip pages already in the Data Report</label>
-        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: also open each page's home tab (adds intro &amp; rating, slower)</label>
+        <label class="check"><input id="skipExisting" type="checkbox" checked> Skip entries already in the Data Report</label>
+        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: also open each profile or page’s home tab (adds intro &amp; rating, slower)</label>
       </div>
 
       <div class="actions">
@@ -50,7 +50,7 @@
         <span id="flash" class="flash" role="status"></span>
       </div>
       <p class="note">Stay logged in to Facebook in this browser. A separate window opens and visits each page.
-        Keep it visible while the job runs. Personal profiles are skipped automatically.</p>
+        Keep it visible while the job runs. Collects only details visible to your logged-in account; hidden contact details remain blank.</p>
     </section>
 
     <section class="card" id="progressCard">

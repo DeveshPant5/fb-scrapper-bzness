@@ -15,7 +15,7 @@
 
   const FB = 'https://www.facebook.com';
 
-  // First path segments that are Facebook features, never business pages.
+  // First path segments that are Facebook features, never profiles or pages.
   const RESERVED = new Set([
     'about', 'ads', 'adsmanager', 'ajax', 'api', 'bookmarks', 'business', 'business_help',
     'campaign', 'careers', 'checkpoint', 'commerce', 'composer', 'cookie', 'cookies',
@@ -86,14 +86,14 @@
 
   const pageKey = (url) => (normalizePageUrl(url) || String(url || '')).toLowerCase();
 
-  /** The page's "About → Contact and basic info" tab. */
-  function aboutUrl(canon) {
+  /** Contact tab first; the general About tab supports other profile layouts. */
+  function aboutUrl(canon, tab = 'about_contact_and_basic_info') {
     const u = new URL(canon);
     const id = u.searchParams.get('id');
     if (u.pathname === '/profile.php' && id) {
-      return `${FB}/profile.php?id=${id}&sk=about_contact_and_basic_info`;
+      return `${FB}/profile.php?id=${id}&sk=${tab}`;
     }
-    return `${canon.replace(/\/+$/, '')}/about_contact_and_basic_info`;
+    return `${canon.replace(/\/+$/, '')}/${tab}`;
   }
 
   // ------------------------------------------------------- text patterns
@@ -232,15 +232,15 @@
   }
 
   // Section headings that start / end the parts of the page that hold contact details.
-  const SECTION_START = /^(Intro|Categor(?:y|ies)|Contact info|Websites and social links)$/i;
-  const SECTION_STOP = /^(Basic info|Privacy and legal info|Page transparency|Photos|Featured|Posts|Reviews|Life events|Details|Places lived|Family and relationships|Work and education|See all photos|Videos|Reels|Mentions|Followers|Following)$/i;
+  const SECTION_START = /^(Intro|Bio|Details|Categor(?:y|ies)|Contact(?: and basic)? info(?:rmation)?|Contact details|Websites?(?: and social links)?|Social links)$/i;
+  const SECTION_STOP = /^(Basic info|Privacy and legal info|Page transparency|Photos|Featured|Posts|Reviews|Life events|Places lived|Family and relationships|Work and education|See all photos|Videos|Reels|Mentions|Followers|Following|Friends)$/i;
 
   /** Line indexes inside the contact sections (falls back to the first 80 lines). */
   function scopeIndexes(lines) {
     const idx = new Set();
     for (let i = 0; i < lines.length; i++) {
       if (!SECTION_START.test(lines[i])) continue;
-      for (let j = i + 1; j < Math.min(lines.length, i + 31); j++) {
+      for (let j = i + 1; j < lines.length; j++) {
         if (SECTION_START.test(lines[j]) || SECTION_STOP.test(lines[j])) break;
         idx.add(j);
       }
@@ -249,11 +249,11 @@
     return idx;
   }
 
-  // On "Contact and basic info" each value is followed by a small label.
+  // Labels can appear before or after a value, or inline ("Email: …").
   const LABELS = [
     ['whatsapp', /^whatsapp$/i],
-    ['phones', /^(mobile|phone|work|home|main|office|landline|telephone|tel)$/i],
-    ['emails', /^e-?mail$/i],
+    ['phones', /^(mobile|phone(?: number)?|work|home|main|office|landline|telephone|tel)$/i],
+    ['emails', /^e-?mail(?: address)?$/i],
     ['websites', /^websites?$/i],
     ['address', /^address$/i],
     ['instagram', /^instagram$/i],
@@ -287,9 +287,9 @@
       if (line) r.rating = line.replace(/reviews?/i, 'reviews');
     }
 
-    // Category ("Page · Dentist & dental office")
+    // Pages and professional profiles expose categories in the header.
     for (const l of lines) {
-      if ((m = l.match(/^Page\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
+      if ((m = l.match(/^(?:Page|Profile)\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
     }
 
     // Links: mail/tel/WhatsApp anywhere; websites, socials and maps only from the contact sections.
@@ -300,33 +300,38 @@
       if (c.type === 'email') addValue(r, 'emails', c.value);
       else if (c.type === 'phone') addValue(r, 'phones', c.value);
       else if (c.type === 'whatsapp') addValue(r, 'whatsapp', c.value);
-      else if (!scopeText.has(t)) continue;
+      else if (!scopeText.has(t) && !String(text || '').split('\n').some((l) => scopeText.has(cleanLine(l)))) continue;
       else if (c.type === 'web') addValue(r, 'websites', c.value);
       else if (c.type === 'instagram') addValue(r, 'instagram', c.value);
       else if (c.type === 'social') addValue(r, 'otherLinks', c.value);
       else if (c.type === 'map' && !r.address && t.length > 5 && !isPhoneLike(t)) r.address = t;
     }
 
-    // Labelled values ("+91 98765 43210" followed by "WhatsApp").
-    for (let i = 0; i < lines.length - 1; i++) {
-      const v = lines[i];
-      const label = lines[i + 1];
+    // Try the legacy value-before-label order first, then label-before-value.
+    for (let i = 0; i < lines.length; i++) {
+      const inline = lines[i].match(/^([^:：]+)[:：]\s*(.+)$/);
+      const label = inline ? inline[1].trim() : lines[i];
       for (const [field, re] of LABELS) {
         if (!re.test(label)) continue;
-        let ok = false;
-        if (field === 'phones' || field === 'whatsapp') ok = isPhoneLike(v);
-        else if (field === 'emails') ok = EMAIL_ONE.test(v);
-        else if (field === 'websites') ok = isUrlLike(v);
-        else if (field === 'instagram') ok = /^@?[\w.]{2,30}$/.test(v) || /instagram\.com\//i.test(v);
-        else if (field === 'address') ok = v.length >= 5 && v.length <= 250 && !isPhoneLike(v) && !EMAIL_ONE.test(v) && !isUrlLike(v);
-        else if (field === 'category') ok = v.length <= 120;
-        if (!ok) continue;
-        assigned.add(i);
-        if (field === 'address') { if (!r.address) r.address = v; }
-        else if (field === 'category') { if (!r.category) r.category = v.replace(/^Page\s*[·•]\s*/i, ''); }
-        else if (field === 'websites') addValue(r, 'websites', /^https?:\/\//i.test(v) ? v : 'https://' + v);
-        else if (field === 'instagram') addValue(r, 'instagram', /instagram\.com\//i.test(v) ? v : `https://www.instagram.com/${v.replace(/^@/, '')}`);
-        else addValue(r, field, v);
+        const candidates = inline ? [[i, inline[2]]] : [[i - 1, lines[i - 1]], [i + 1, lines[i + 1]]];
+        for (const [index, v] of candidates) {
+          if (!v || assigned.has(index) || SECTION_START.test(v) || SECTION_STOP.test(v) || /^(About|More)$/i.test(v) || LABELS.some(([, pattern]) => pattern.test(v))) continue;
+          let ok = false;
+          if (field === 'phones' || field === 'whatsapp') ok = isPhoneLike(v);
+          else if (field === 'emails') ok = EMAIL_ONE.test(v);
+          else if (field === 'websites') ok = isUrlLike(v);
+          else if (field === 'instagram') ok = /^@?[\w.]{2,30}$/.test(v) || /instagram\.com\//i.test(v);
+          else if (field === 'address') ok = v.length >= 5 && v.length <= 250 && !isPhoneLike(v) && !EMAIL_ONE.test(v) && !isUrlLike(v);
+          else if (field === 'category') ok = v.length <= 120;
+          if (!ok) continue;
+          assigned.add(index);
+          if (field === 'address') { if (!r.address) r.address = v; }
+          else if (field === 'category') { if (!r.category) r.category = v.replace(/^(?:Page|Profile)\s*[·•]\s*/i, ''); }
+          else if (field === 'websites') addValue(r, 'websites', /^https?:\/\//i.test(v) ? v : 'https://' + v);
+          else if (field === 'instagram') addValue(r, 'instagram', /instagram\.com\//i.test(v) ? v : `https://www.instagram.com/${v.replace(/^@/, '')}`);
+          else addValue(r, field, v);
+          break;
+        }
         break;
       }
     }
@@ -335,7 +340,7 @@
     for (const i of [...scope].sort((a, b) => a - b)) {
       if (assigned.has(i)) continue;
       const l = lines[i];
-      if (/^Page\s*[·•]/i.test(l) || EMAIL_ONE.test(l)) continue;
+      if (/^(?:Page|Profile)\s*[·•]/i.test(l) || EMAIL_ONE.test(l)) continue;
       if (isPhoneLike(l)) { addValue(r, 'phones', l); continue; }
       if (isUrlLike(l)) {
         const c = classifyLink(/^https?:\/\//i.test(l) ? l : 'https://' + l);
@@ -354,15 +359,15 @@
     }
 
     // Intro / bio: the first line of the "Intro" card when it's free text.
-    const introAt = lines.findIndex((l) => /^Intro$/i.test(l));
+    const introAt = lines.findIndex((l) => /^(Intro|Bio)$/i.test(l));
     if (introAt >= 0 && lines[introAt + 1]) {
       const l = lines[introAt + 1];
-      if (l.length >= 15 && !/^Page\s*[·•]/i.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
+      if (l.length >= 15 && !/^(?:Page|Profile)\s*[·•]/i.test(l) && !SECTION_START.test(l) && !SECTION_STOP.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
         r.intro = l;
       }
     }
 
-    // A personal profile, not a business page: never stored.
+    // Retain this classification without excluding public personal profiles.
     r.isPersonal =
       !r.category &&
       lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
@@ -467,15 +472,14 @@
     const lines = main.innerText.split('\n');
     const links = Array.from(main.querySelectorAll('a[href]'), (a) => ({
       href: a.href,
-      text: cleanLine(a.innerText || a.getAttribute('aria-label') || ''),
+      text: a.innerText || a.getAttribute('aria-label') || '',
     }));
     const h1 = (main.querySelector('h1') || {}).innerText || '';
     const data = parseProfile({ lines, links, h1, title: document.title });
-    if (data.isPersonal) return { isPersonal: true };
     return { data, finalUrl: location.href };
   }
 
-  /** On a facebook.com/search/pages/?q=… tab: scroll and collect page URLs. */
+  /** On a Facebook search tab: scroll and collect page/profile URLs. */
   async function collectSearchResults(limit, skipKeys = [], maxIdleRounds = 5) {
     const skip = new Set(skipKeys);
     const found = new Map();
@@ -494,7 +498,7 @@
         if (!text || text.length > 150) continue;
         // Skip "Rahul and 3 friends like this"-style links to people.
         const ctx = cleanLine((a.parentElement && a.parentElement.parentElement && a.parentElement.parentElement.innerText) || '');
-        if (ctx.length > text.length + 4 && /\b(like|likes|follow|follows) this\b|mutual friends?/i.test(ctx)) continue;
+        if (ctx.length > text.length + 4 && /\b(like|likes|follow|follows) this\b/i.test(ctx)) continue;
         const url = normalizePageUrl(a.href);
         if (!url) continue;
         const key = url.toLowerCase();

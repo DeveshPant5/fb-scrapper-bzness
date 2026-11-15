@@ -3,7 +3,7 @@ importScripts('content/fb.js');
 
 const FBS = globalThis.FBScraper;
 const DASHBOARD = chrome.runtime.getURL('dashboard.html');
-const SEARCH_URL = (q) => `https://www.facebook.com/search/pages/?q=${encodeURIComponent(q)}`;
+const SEARCH_URL = (q) => `https://www.facebook.com/search/top/?q=${encodeURIComponent(q)}`;
 
 const BLOCK_MESSAGES = {
   login: 'Facebook is asking you to log in. Log in to facebook.com in this browser, then press Start again.',
@@ -171,8 +171,15 @@ async function scrapeOne(tabId, url, s) {
   let merged = null;
   const a = await visitAndExtract(tabId, FBS.aboutUrl(canon));
   if (a.blocked) return { blocked: a.blocked };
-  if (a.isPersonal) return { skipped: 'personal profile, not a business page' };
   if (a.data) merged = a.data;
+
+  if (!FBS.hasContact(merged)) {
+    if (stopRequested) return { stopped: true };
+    await interruptibleSleep(1500);
+    const about = await visitAndExtract(tabId, FBS.aboutUrl(canon, 'about'));
+    if (about.blocked) return { blocked: about.blocked };
+    if (about.data) merged = FBS.mergeParsed(merged, about.data);
+  }
 
   // Home tab: always in thorough mode, otherwise only when the About tab gave nothing useful.
   if (s.thorough || !FBS.hasContact(merged)) {
@@ -180,7 +187,6 @@ async function scrapeOne(tabId, url, s) {
     await interruptibleSleep(1500);
     const b = await visitAndExtract(tabId, canon);
     if (b.blocked) return { blocked: b.blocked };
-    if (b.isPersonal) return { skipped: 'personal profile, not a business page' };
     if (b.data) merged = FBS.mergeParsed(merged, b.data);
   }
 
@@ -264,7 +270,7 @@ async function runJob(p, s) {
   if (p.mode === 'keyword') {
     const q = p.keyword.trim();
     job.phase = 'searching';
-    job.message = `Searching Facebook pages for "${q}"…`;
+    job.message = `Searching Facebook pages and profiles for "${q}"…`;
     log(job.message);
     await saveJob();
     await navigate(tabId, SEARCH_URL(q));

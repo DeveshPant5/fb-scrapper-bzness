@@ -43,6 +43,8 @@ test('aboutUrl points at the Contact and basic info tab', () => {
     F.aboutUrl('https://www.facebook.com/profile.php?id=1000635394'),
     'https://www.facebook.com/profile.php?id=1000635394&sk=about_contact_and_basic_info'
   );
+  assert.equal(F.aboutUrl('https://www.facebook.com/acme', 'about'), 'https://www.facebook.com/acme/about');
+  assert.equal(F.aboutUrl('https://www.facebook.com/profile.php?id=123456', 'about'), 'https://www.facebook.com/profile.php?id=123456&sk=about');
 });
 
 test('phone detection rejects counts and dates', () => {
@@ -133,12 +135,57 @@ test('parseProfile reads the unlabelled Intro card on a page home tab', () => {
   assert.equal(r.followers, '1.3K');
 });
 
-test('parseProfile flags personal profiles so they are never stored', () => {
+test('parseProfile identifies personal profiles while keeping their public contacts', () => {
   const r = F.parseProfile({
-    lines: ['Rahul Sharma', '1.2K friends', 'Add friend', 'Message', 'Posts', 'About', 'Friends', 'Photos'],
+    lines: ['Rahul Sharma', '1.2K friends', 'Add friend', 'Message', 'Posts', 'About', 'Friends', 'Photos', 'Details', 'rahul@example.com', '+91 98765 43210'],
     h1: 'Rahul Sharma',
   });
   assert.equal(r.isPersonal, true);
+  const record = F.toRecord('https://www.facebook.com/rahul', r);
+  assert.equal(record.email, 'rahul@example.com');
+  assert.equal(record.phone, '+91 98765 43210');
+});
+
+test('company About layouts support labels before values and inline labels', () => {
+  const r = F.parseProfile({ h1: 'Acme Ltd', lines: [
+    'About', 'Categories', 'Company', 'Contact information',
+    'Phone number', '+1 415-555-0132', 'Email address: hello@acme.example',
+    'Website', 'acme.example', 'Address', '10 Baker Street, London, NW1 6XE',
+    'WhatsApp: +44 20 7946 0958', 'Instagram: acme_official',
+  ] });
+  assert.equal(r.name, 'Acme Ltd');
+  assert.equal(r.category, 'Company');
+  assert.deepEqual(r.phones, ['+1 415-555-0132']);
+  assert.deepEqual(r.emails, ['hello@acme.example']);
+  assert.deepEqual(r.websites, ['https://acme.example']);
+  assert.equal(r.address, '10 Baker Street, London, NW1 6XE');
+  assert.deepEqual(r.whatsapp, ['+44 20 7946 0958']);
+  assert.deepEqual(r.instagram, ['https://www.instagram.com/acme_official']);
+});
+
+test('adjacent labels before values keep phone and WhatsApp numbers separate', () => {
+  const r = F.parseProfile({ lines: [
+    'Contact details', 'Phone', '+1 415-555-0132', 'WhatsApp', '+44 20 7946 0958',
+  ] });
+  assert.deepEqual(r.phones, ['+1 415-555-0132']);
+  assert.deepEqual(r.whatsapp, ['+44 20 7946 0958']);
+});
+
+test('creator and organization details use contact sections without reading post websites', () => {
+  for (const category of ['Digital creator', 'Nonprofit organization', 'Company']) {
+    const r = F.parseProfile({ h1: 'Public Profile', lines: [
+      'Bio', 'Helping people learn something new every day.', `Profile · ${category}`,
+      'Details', ...Array(35).fill('Additional public detail'), 'creator.example',
+      'Visit our site', 'Posts', 'unrelated.example', 'News story',
+    ], links: [
+      { href: 'https://creator.example/contact', text: 'Visit our site\ncreator.example' },
+      { href: 'https://unrelated.example/', text: 'News story' },
+    ] });
+    assert.equal(r.category, category);
+    assert.equal(r.isPersonal, false);
+    assert.equal(r.intro, 'Helping people learn something new every day.');
+    assert.deepEqual(r.websites, ['https://creator.example/contact', 'https://creator.example/']);
+  }
 });
 
 test('mergeParsed + toRecord combine two visits without duplicates', () => {
