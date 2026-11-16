@@ -51,8 +51,8 @@ const ready = (async () => {
 
 chrome.action.onClicked.addListener(async (tab) => {
   // Clicking the icon while on a Facebook page pre-fills it in the dashboard.
-  const pageUrl = tab && tab.url ? FBS.normalizePageUrl(tab.url) : null;
-  if (pageUrl) await chrome.storage.local.set({ prefillUrl: pageUrl });
+  const target = tab && tab.url ? IGS.normalizeTarget(tab.url) : null;
+  if (target) await chrome.storage.local.set({ prefillUrl: target.url });
 
   const [ctx] = await chrome.runtime.getContexts({ contextTypes: ['TAB'], documentUrls: [DASHBOARD] });
   if (ctx) {
@@ -102,6 +102,7 @@ function sanitize(s = {}) {
     delay: num(s.delay, 6, 3, 120),
     skipExisting: s.skipExisting !== false,
     thorough: !!s.thorough,
+    searchPlatform: s.searchPlatform === 'instagram' ? 'instagram' : 'facebook',
   };
 }
 
@@ -228,17 +229,18 @@ function upsertRecord(records, rec) {
   records[i] = merged;
 }
 
+/** Pasted lines → [{ platform, url }]: Instagram URLs/@names and Facebook URLs/names. */
 function parseUrlList(urls) {
   const seen = new Set();
   const out = [];
   let invalid = 0;
   for (const raw of urls || []) {
-    const u = FBS.normalizePageUrl(raw);
-    if (!u) { invalid++; continue; }
-    const k = u.toLowerCase();
-    if (!seen.has(k)) { seen.add(k); out.push(u); }
+    const t = IGS.normalizeTarget(raw);
+    if (!t) { invalid++; continue; }
+    const k = t.url.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); out.push(t); }
   }
-  return { urls: out, invalid };
+  return { targets: out, invalid };
 }
 
 // ------------------------------------------------------------------ job
@@ -246,7 +248,7 @@ function parseUrlList(urls) {
 async function startJob(p) {
   if (running) return { ok: false, error: 'A job is already running.' };
   if (p.mode === 'keyword' && !String(p.keyword || '').trim()) return { ok: false, error: 'Enter a keyword.' };
-  if (p.mode !== 'keyword' && !(p.urls && p.urls.length)) return { ok: false, error: 'Paste at least one page URL.' };
+  if (p.mode !== 'keyword' && !(p.urls && p.urls.length)) return { ok: false, error: 'Paste at least one URL.' };
 
   running = true;
   stopRequested = false;
@@ -291,38 +293,56 @@ async function runJob(p, s) {
   const existing = new Set(records.map((r) => r.key));
   const tabId = await openWorker(p.screen);
 
+  // Instagram profiles are read through instagram.com's own API, so the tab only needs to be on
+  // instagram.com once, not on every profile. Facebook visits navigate away from it.
+  let onInstagram = false;
+  const openInstagram = async () => {
+    await navigate(tabId, IGS.HOME);
+    const blocked = await runInTab(tabId, () => globalThis.IGScraper.detectBlock(), [], IG_FILES);
+    onInstagram = !blocked;
+    return blocked;
+  };
+
   let targets = [];
   if (p.mode === 'keyword') {
     const q = p.keyword.trim();
+    const platform = s.searchPlatform;
+    const ig = platform === 'instagram';
+    const skip = s.skipExisting ? [...existing] : [];
     job.phase = 'searching';
-    job.message = `Searching Facebook pages for "${q}"…`;
+    job.message = ig ? `Searching Instagram accounts for "${q}"…` : `Searching Facebook pages for "${q}"…`;
     log(job.message);
     await saveJob();
-    await navigate(tabId, SEARCH_URL(q));
-    const res = await runInTab(
-      tabId,
-      (limit, skip) => globalThis.FBScraper.collectSearchResults(limit, skip),
-      [s.limit, s.skipExisting ? [...existing] : []]
-    );
-    if (!res) throw new Error('Could not read the search results page.');
-    if (res.blocked) return stopForBlock(res.blocked);
-    targets = res.urls.map((x) => x.url);
-    log(`Found ${targets.length} page(s) in search results.`);
+
+    let res;
+    if (ig) {
+      const blocked = await openInstagram();
+      if (blocked) return stopForBlock(blocked, platform);
+      res = await runInTab(tabId, (q, limit, skip) => globalThis.IGScraper.searchAccounts(q, limit, skip), [q, s.limit, skip], IG_FILES);
+    } else {
+      await navigate(tabId, SEARCH_URL(q));
+      res = await runInTab(tabId, (limit, skip) => globalThis.FBScraper.collectSearchResults(limit, skip), [s.limit, skip]);
+    }
+    if (!res) throw new Error('Could not read the search results.');
+    if (res.blocked) return stopForBlock(res.blocked, platform);
+    if (res.error) throw new Error(res.error);
+    targets = res.urls.map((x) => ({ platform, url: x.url }));
+    log(ig ? `Found ${targets.length} new public account(s) in Instagram search.` : `Found ${targets.length} page(s) in search results.`);
   } else {
-    const { urls, invalid } = parseUrlList(p.urls);
-    if (invalid) log(`Ignored ${invalid} line(s) that are not Facebook page URLs.`, 'warn');
-    targets = urls;
+    const { targets: parsed, invalid } = parseUrlList(p.urls);
+    if (invalid) log(`Ignored ${invalid} line(s) that are not Facebook or Instagram URLs.`, 'warn');
+    targets = parsed;
     if (s.skipExisting) {
       const before = targets.length;
-      targets = targets.filter((u) => !existing.has(u.toLowerCase()));
-      if (before - targets.length) log(`Skipped ${before - targets.length} page(s) already in the Data Report.`);
+      targets = targets.filter((t) => !existing.has(t.url.toLowerCase()));
+      if (before - targets.length) log(`Skipped ${before - targets.length} already in the Data Report.`);
     }
     targets = targets.slice(0, s.limit);
   }
 
   if (!targets.length) {
     job.phase = 'done';
-    job.message = 'No new pages to scrape.';
+    job.message = 'Nothing new to scrape.';
     log(job.message);
     return;
   }
@@ -331,21 +351,30 @@ async function runJob(p, s) {
   job.phase = 'scraping';
   for (let i = 0; i < targets.length; i++) {
     if (stopRequested) return;
-    const url = targets[i];
+    const { platform, url } = targets[i];
     job.current = url;
     job.message = `Scraping ${i + 1} of ${targets.length}…`;
     await saveJob();
 
     let result;
     try {
-      result = await scrapeOne(tabId, url, s);
+      if (platform === 'instagram') {
+        if (!onInstagram) {
+          const blocked = await openInstagram();
+          if (blocked) return stopForBlock(blocked, platform);
+        }
+        result = await scrapeIg(tabId, url);
+      } else {
+        onInstagram = false;
+        result = await scrapeOne(tabId, url, s);
+      }
     } catch (e) {
       if (stopRequested) return;
       result = { error: e.message };
     }
 
     if (result.stopped) return;
-    if (result.blocked) return stopForBlock(result.blocked);
+    if (result.blocked) return stopForBlock(result.blocked, platform);
     if (result.skipped) {
       job.skipped++;
       log(`Skipped ${url} (${result.skipped})`);
