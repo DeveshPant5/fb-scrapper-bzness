@@ -7,7 +7,7 @@
   const MAX_ROWS = 500;
 
   const CSV_COLUMNS = [
-    ['name', 'Page Name'], ['category', 'Category'], ['email', 'Email'], ['phone', 'Phone'],
+    ['name', 'Name'], ['kind', 'Type'], ['category', 'Category'], ['email', 'Email'], ['phone', 'Phone'],
     ['whatsapp', 'WhatsApp'], ['website', 'Website'], ['address', 'Address'], ['likes', 'Likes'],
     ['followers', 'Followers'], ['rating', 'Rating'], ['instagram', 'Instagram'],
     ['otherLinks', 'Other Links'], ['intro', 'Intro'], ['pageUrl', 'Facebook URL'], ['scrapedAt', 'Scraped At'],
@@ -138,7 +138,7 @@
       const tr = document.createElement('tr');
       tr.className = 'empty';
       const td = document.createElement('td');
-      td.colSpan = 9;
+      td.colSpan = 10;
       td.textContent = records.length ? 'No rows match the filter.' : 'No data yet. Start a job to collect pages.';
       tr.append(td);
       body.replaceChildren(tr);
@@ -149,6 +149,7 @@
           const site = (r.website || '').split(' | ')[0];
           tr.append(
             cell(r.name || r.pageUrl, r.pageUrl),
+            cell(r.kind),
             cell(r.category),
             cell(r.email),
             cell(r.phone),
