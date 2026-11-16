@@ -171,20 +171,27 @@ async function scrapeOne(tabId, url, s) {
   let merged = null;
   const a = await visitAndExtract(tabId, FBS.aboutUrl(canon));
   if (a.blocked) return { blocked: a.blocked };
-  if (a.isPersonal) return { skipped: 'personal profile, not a business page' };
   if (a.data) merged = a.data;
 
-  // Home tab: always in thorough mode, otherwise only when the About tab gave nothing useful.
-  if (s.thorough || !FBS.hasContact(merged)) {
+  // Home tab: always in thorough mode; otherwise when the About tab had no contact details or
+  // no category (professional-mode profiles may show "Profile · <category>" only on the home tab).
+  if (s.thorough || !FBS.hasContact(merged) || !FBS.isBusiness(merged)) {
     if (stopRequested) return { stopped: true };
     await interruptibleSleep(1500);
     const b = await visitAndExtract(tabId, canon);
     if (b.blocked) return { blocked: b.blocked };
-    if (b.isPersonal) return { skipped: 'personal profile, not a business page' };
     if (b.data) merged = FBS.mergeParsed(merged, b.data);
   }
 
   if (!merged) return { error: 'page not found or not available' };
+  // Only Pages and professional-mode profiles are saved; everything else is dropped here.
+  if (!FBS.isBusiness(merged)) {
+    return {
+      skipped: merged.isPersonal
+        ? 'personal profile (only Pages and professional-mode profiles are saved)'
+        : 'no Page or professional-profile category found',
+    };
+  }
   return { record: FBS.toRecord(canon, merged) };
 }
 
