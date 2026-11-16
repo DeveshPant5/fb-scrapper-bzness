@@ -6,8 +6,8 @@
  *
  * Instagram's web page shows very little as plain text, so profiles are read from the same JSON
  * endpoints instagram.com itself uses, called from inside a logged-in instagram.com tab.
- * Only business and creator accounts are kept; personal and private accounts are skipped
- * before any of their details leave the tab.
+ * Personal, business, creator and private accounts use the profile details available to the
+ * logged-in session. Private content is not requested.
  *
  * Must stay a classic script (no import/export).
  */
@@ -20,6 +20,7 @@
   const IG = 'https://www.instagram.com';
   const KIND_BUSINESS = 'Business account';
   const KIND_CREATOR = 'Creator account';
+  const KIND_PERSONAL = 'Personal account';
   // Instagram's public web-app id, sent by instagram.com itself on every API call.
   const WEB_APP_ID = '936619743392459';
 
@@ -161,7 +162,9 @@
     const r = F.emptyParsed();
     r.platform = 'Instagram';
     r.isPersonal = !isProfessional(user);
-    r.kind = r.isPersonal ? '' : user.is_business_account ? KIND_BUSINESS : KIND_CREATOR;
+    r.profileType = 'Profile';
+    r.kind = r.isPersonal ? KIND_PERSONAL : user.is_business_account ? KIND_BUSINESS : KIND_CREATOR;
+    if (user.is_private) r.kind += ' (private)';
     r.name = F.cleanLine(user.full_name || i.full_name || '') || user.username || '';
 
     const cat = F.cleanLine(user.category_name || i.category || user.business_category_name || '');
@@ -236,7 +239,7 @@
     return null;
   }
 
-  /** Reads one profile. Returns { data } | { skipped } | { notFound } | { blocked } | { error }. */
+  /** Reads one profile. Returns { data } | { notFound } | { blocked } | { error }. */
   async function extractProfile(username) {
     let blocked = detectBlock();
     if (blocked) return { blocked };
@@ -249,13 +252,9 @@
       if (r1.status === 404 || (r1.status === 200 && r1.json)) return { notFound: true };
       return { error: `Instagram returned HTTP ${r1.status}${r1.json ? '' : ' without JSON (its profile API may have changed)'}` };
     }
-    if (!isProfessional(user)) {
-      return { skipped: user.is_private ? 'private personal account' : 'personal account (only business and creator accounts are saved)' };
-    }
-
     // The email/phone behind the profile's "Contact" button usually come from a second endpoint.
     let info = null;
-    if (user.id && !(user.business_email && user.business_phone_number)) {
+    if (isProfessional(user) && !user.is_private && user.id && !(user.business_email && user.business_phone_number)) {
       await sleep(1000 + Math.random() * 1000);
       const r2 = await igFetch(`/api/v1/users/${encodeURIComponent(user.id)}/info/`);
       if ((blocked = responseBlock(r2))) return { blocked };
@@ -287,7 +286,7 @@
     const found = new Map();
     for (const entry of users) {
       const u = (entry && entry.user) || entry;
-      if (!u || !u.username || u.is_private) continue; // private accounts are always personal
+      if (!u || !u.username) continue;
       const url = validUser(u.username);
       if (!url || skip.has(url) || found.has(url)) continue;
       found.set(url, { url, name: u.full_name || u.username });
@@ -300,6 +299,7 @@
     HOME: `${IG}/`,
     KIND_BUSINESS,
     KIND_CREATOR,
+    KIND_PERSONAL,
     normalizeIgUrl,
     normalizeTarget,
     targetKey,

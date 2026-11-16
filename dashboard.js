@@ -11,7 +11,7 @@
     facebook: 'Searches Facebook for public pages and profiles, including companies, organizations, and creators.',
     instagram:
       'Runs an Instagram account search. It matches account names and usernames (not bios or locations) and ' +
-      'returns about 50 accounts at most. Personal and private accounts are skipped.',
+      'returns about 50 accounts at most. Includes personal, business, creator and private accounts; only available profile details are saved.',
   };
 
   const CSV_COLUMNS = FBS.REPORT_COLUMNS;

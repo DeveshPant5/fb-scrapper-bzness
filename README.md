@@ -3,7 +3,7 @@
 Collects public contact details from Facebook **pages and public profiles**, including companies,
 organizations, creators, and people. Collects name, age, gender, relationship status, current
 location, category, email, phone, WhatsApp, website, address, audience counts, bio, and social
-links, plus Instagram business and creator accounts, and exports them in a consistent CSV format.
+links, plus Instagram personal, business, creator and private accounts, and exports them in a consistent CSV format.
 
 ## Install
 
@@ -20,7 +20,7 @@ you scrape.
   - Facebook: runs a general search across pages and profiles such as `dentist in Pune`, scrolls the results, then visits each result.
   - Instagram: runs Instagram's account search. It matches account names and usernames (not bios
     or locations), so `dental clinic pune` works better than `dentist in Pune`. It returns about 50
-    accounts at most per keyword. Private accounts are dropped straight away.
+    accounts at most per keyword. All account types are included, including private profiles.
 - **Profile / page URLs**: paste one per line. Facebook and Instagram can be mixed:
   - Facebook: `facebook.com/name`, `profile.php?id=…`, `/people/Name/…`, or a bare `name`.
   - Instagram: `instagram.com/name` or `@name`.
@@ -58,9 +58,10 @@ or inline with values. Post articles and their links are removed before parsing 
 once and, for each account, calls the endpoints instagram.com itself uses, with your logged-in session:
 
 1. `/api/v1/users/web_profile_info/?username=…` returns the name, bio, links, followers, category,
-   and whether it's a business or creator account.
+   and account type, including personal and private profiles. Only details available to your
+   logged-in session are saved; private posts, stories and other hidden content are not requested.
 2. `/api/v1/users/<id>/info/` returns the email/phone behind the profile's **Contact** button. It's
-   only called for business and creator accounts that didn't already include both.
+   only called for public business and creator accounts that didn't already include both.
 
 Emails, phone/WhatsApp numbers (10+ digits) and explicit links (`http…`, `www…`, `wa.me/…`) written
 in the bio are picked up too.
@@ -71,7 +72,7 @@ The report and CSV share the same 23 columns, with one row per profile or page:
 
 | Fields | Format and source |
 |---|---|
-| Name, Platform, Type, Profile Type | Displayed name; `Page` or `Profile` when identifiable, plus platform and professional account type. |
+| Name, Platform, Type, Profile Type | Displayed name; `Page` or `Profile` when identifiable, plus platform and account type. Instagram types are `Personal account`, `Business account` and `Creator account`, with ` (private)` appended for private profiles. |
 | Age | Whole years, from an explicit age or a complete labelled birth date. Separate birthday and birth-year fields can be combined. Missing years and ambiguous numeric dates remain blank. Birth dates are not saved or exported. |
 | Gender | Recognized, explicitly displayed English gender values; preserved as displayed. |
 | Relationship Status | Explicit status such as Single or Married; partner names are excluded. |
@@ -95,7 +96,9 @@ relationship or contact details do not masquerade as the latest information.
 - Public personal profiles and all Page categories are accepted; no business category is required.
 - Only information visible to your logged-in account can be collected. Missing or hidden fields stay blank.
 - Keyword discovery depends on Facebook’s search ranking; it does not enumerate every matching profile.
-- Instagram: only business and creator accounts are saved; personal and private accounts are skipped.
+- Instagram: all account types are saved using available profile details. Private profiles may have
+  only a name, bio, links or counts; hidden contacts remain blank. Personal and private profiles
+  do not trigger the extra Contact endpoint request.
 - If either site shows a login page, a security checkpoint, or a "you're going too fast" block, the
   job **stops**, leaving the window open so you can deal with it. The extension never tries to bypass these.
 - The delay between pages can't be set below 3 seconds.

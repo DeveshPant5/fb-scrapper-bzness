@@ -141,18 +141,25 @@ test('mixed URL lists keep both platforms and deduplicate canonical targets', ()
   ]);
 });
 
-test('Instagram records use the shared report schema with empty demographics', async () => {
-  const w = worker([]);
-  const data = globalThis.IGScraper.parseIgUser({ username: 'acme', is_business_account: true });
-  w.context.runInTab = async (_, __, args, files) => {
-    assert.deepEqual(Array.from(args), ['acme']);
-    assert.deepEqual(Array.from(files), ['content/fb.js', 'content/ig.js']);
-    return { data };
-  };
-  const { record } = await vm.runInContext('scrapeIg(1, "https://www.instagram.com/acme/")', w.context);
-  assert.deepEqual(Object.keys(record).filter((key) => key !== 'key').sort(), F.REPORT_COLUMNS.map(([key]) => key).sort());
-  const values = F.toCsv([record]).split('\r\n')[1].split(',');
-  for (const [key, expected] of [['platform', 'Instagram'], ['kind', 'Business account'], ['age', ''], ['gender', '']]) {
-    assert.equal(values[F.REPORT_COLUMNS.findIndex(([field]) => field === key)], expected);
+test('all Instagram account types reach the shared report and CSV with empty demographics', async () => {
+  for (const [flags, kind] of [
+    [{ is_business_account: true }, 'Business account'],
+    [{ is_professional_account: true }, 'Creator account'],
+    [{}, 'Personal account'],
+    [{ is_private: true }, 'Personal account (private)'],
+  ]) {
+    const w = worker([]);
+    const data = globalThis.IGScraper.parseIgUser({ username: 'acme', ...flags });
+    w.context.runInTab = async (_, __, args, files) => {
+      assert.deepEqual(Array.from(args), ['acme']);
+      assert.deepEqual(Array.from(files), ['content/fb.js', 'content/ig.js']);
+      return { data };
+    };
+    const { record } = await vm.runInContext('scrapeIg(1, "https://www.instagram.com/acme/")', w.context);
+    assert.deepEqual(Object.keys(record).filter((key) => key !== 'key').sort(), F.REPORT_COLUMNS.map(([key]) => key).sort());
+    const values = F.toCsv([record]).split('\r\n')[1].split(',');
+    for (const [key, expected] of [['platform', 'Instagram'], ['kind', kind], ['profileType', 'Profile'], ['age', ''], ['gender', '']]) {
+      assert.equal(values[F.REPORT_COLUMNS.findIndex(([field]) => field === key)], expected);
+    }
   }
 });

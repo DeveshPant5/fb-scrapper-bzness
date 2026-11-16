@@ -325,7 +325,7 @@ async function runJob(p, s) {
     if (res.blocked) return stopForBlock(res.blocked, platform);
     if (res.error) throw new Error(res.error);
     targets = res.urls.map((x) => ({ platform, url: x.url }));
-    log(ig ? `Found ${targets.length} new public account(s) in Instagram search.` : `Found ${targets.length} page(s) in search results.`);
+    log(ig ? `Found ${targets.length} new account(s) in Instagram search.` : `Found ${targets.length} page(s) in search results.`);
   } else {
     const { targets: parsed, invalid } = parseUrlList(p.urls);
     if (invalid) log(`Ignored ${invalid} line(s) that are not Facebook or Instagram URLs.`, 'warn');

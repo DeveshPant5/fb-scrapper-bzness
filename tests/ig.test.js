@@ -1,11 +1,34 @@
 // Run with: node --test tests/
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
 require('../content/fb.js');
 require('../content/ig.js');
 
 const F = globalThis.FBScraper;
 const I = globalThis.IGScraper;
+const source = fs.readFileSync(require.resolve('../content/ig.js'), 'utf8');
+
+function instagramTab(responses) {
+  const requests = [];
+  const context = vm.createContext({
+    FBScraper: F,
+    URL,
+    setTimeout: (fn) => fn(),
+    location: { pathname: '/' },
+    document: { cookie: 'ds_user_id=123; csrftoken=test', querySelector: () => null },
+    sessionStorage: { getItem: () => null },
+    fetch: async (path) => {
+      requests.push(path);
+      assert.ok(responses.length, `Unexpected request to ${path}`);
+      const response = responses.shift();
+      return { status: response.status || 200, url: path, text: async () => JSON.stringify(response.json) };
+    },
+  });
+  vm.runInContext(source, context);
+  return { scraper: context.IGScraper, requests };
+}
 
 test('normalizeIgUrl handles Instagram URL shapes and @usernames', () => {
   const cases = [
@@ -123,9 +146,78 @@ test('bio parsing ignores years, prices and pin codes', () => {
   assert.deepEqual(r.websites, []);
 });
 
-test('personal accounts are flagged so they are never stored', () => {
+test('personal and private profiles retain their available details and account type', () => {
   assert.equal(I.isProfessional({ is_professional_account: false, is_business_account: false }), false);
-  const r = I.parseIgUser({ username: 'rahul', full_name: 'Rahul', is_private: true });
-  assert.equal(r.isPersonal, true);
-  assert.equal(r.kind, '');
+  for (const is_private of [false, true]) {
+    const r = I.parseIgUser({
+      username: 'rahul', full_name: 'Rahul', is_private,
+      biography: 'Hello!\nrahul@example.com\nCall +91 98765 43210',
+      edge_followed_by: { count: 0 }, external_url: 'https://rahul.example/',
+    });
+    assert.equal(r.isPersonal, true);
+    assert.equal(r.kind, is_private ? 'Personal account (private)' : I.KIND_PERSONAL);
+    assert.equal(r.profileType, 'Profile');
+    assert.equal(r.name, 'Rahul');
+    assert.equal(r.followers, '0');
+    assert.deepEqual(r.emails, ['rahul@example.com']);
+    assert.deepEqual(r.phones, ['+91 98765 43210']);
+    assert.deepEqual(r.websites, ['https://rahul.example/']);
+  }
+});
+
+test('extractProfile accepts every account type and only requests professional contacts where applicable', async () => {
+  for (const [flags, kind, contactRequest] of [
+    [{ is_business_account: true }, I.KIND_BUSINESS, true],
+    [{ is_professional_account: true }, I.KIND_CREATOR, true],
+    [{ is_business_account: false, is_professional_account: false }, I.KIND_PERSONAL, false],
+    [{ is_private: true }, 'Personal account (private)', false],
+  ]) {
+    const tab = instagramTab([
+      { json: { data: { user: { id: '123', username: 'rahul', ...flags } } } },
+      ...(contactRequest ? [{ json: { user: { public_email: 'hello@example.com' } } }] : []),
+    ]);
+    const result = await tab.scraper.extractProfile('rahul');
+    assert.equal(result.data.kind, kind);
+    assert.equal(result.data.name, 'rahul');
+    assert.equal(result.data.profileType, 'Profile');
+    assert.deepEqual(result.data.emails, contactRequest ? ['hello@example.com'] : []);
+    assert.equal(result.data.age, '');
+    assert.equal(tab.requests.length, contactRequest ? 2 : 1);
+    assert.equal(tab.requests[0], '/api/v1/users/web_profile_info/?username=rahul');
+    if (contactRequest) assert.equal(tab.requests[1], '/api/v1/users/123/info/');
+  }
+});
+
+test('searchAccounts includes all account types and still respects deduplication, skips and limits', async () => {
+  const response = { json: { users: [
+    { user: { username: 'personal', is_private: false } },
+    { user: { username: 'private', is_private: true } },
+    { user: { username: 'PRIVATE', is_private: true } },
+    { user: { username: 'reels' } },
+    { user: { username: 'creator', is_professional_account: true } },
+    { user: { username: 'business', is_business_account: true } },
+  ] } };
+  const result = await instagramTab([response]).scraper.searchAccounts('example', 10);
+  assert.deepEqual(Array.from(result.urls, (item) => item.url), [
+    'https://www.instagram.com/personal/', 'https://www.instagram.com/private/',
+    'https://www.instagram.com/creator/', 'https://www.instagram.com/business/',
+  ]);
+  const limited = await instagramTab([response]).scraper.searchAccounts('example', 1, ['https://www.instagram.com/personal/']);
+  assert.deepEqual(Array.from(limited.urls, (item) => item.url), ['https://www.instagram.com/private/']);
+});
+
+test('Instagram extraction and search still stop for login, checkpoints and rate limits', async () => {
+  for (const [response, blocked] of [
+    [{ status: 401, json: {} }, 'login'],
+    [{ json: { challenge: {} } }, 'checkpoint'],
+    [{ status: 429, json: {} }, 'rate_limited'],
+  ]) {
+    assert.equal((await instagramTab([response]).scraper.extractProfile('rahul')).blocked, blocked);
+    assert.equal((await instagramTab([response]).scraper.searchAccounts('rahul', 10)).blocked, blocked);
+    const professional = instagramTab([
+      { json: { data: { user: { id: '123', username: 'creator', is_professional_account: true } } } },
+      response,
+    ]);
+    assert.equal((await professional.scraper.extractProfile('creator')).blocked, blocked);
+  }
 });
