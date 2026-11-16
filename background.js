@@ -1,16 +1,29 @@
 /* FB Page Scraper — service worker: opens the dashboard and runs scrape jobs. */
-importScripts('content/fb.js');
+importScripts('content/fb.js', 'content/ig.js');
 
 const FBS = globalThis.FBScraper;
+const IGS = globalThis.IGScraper;
 const DASHBOARD = chrome.runtime.getURL('dashboard.html');
 const SEARCH_URL = (q) => `https://www.facebook.com/search/pages/?q=${encodeURIComponent(q)}`;
+const FB_FILES = ['content/fb.js'];
+const IG_FILES = ['content/fb.js', 'content/ig.js'];
 
 const BLOCK_MESSAGES = {
-  login: 'Facebook is asking you to log in. Log in to facebook.com in this browser, then press Start again.',
-  checkpoint:
-    'Facebook is showing a security check. Complete it yourself in the scraper window, then press Start again with a longer delay.',
-  rate_limited:
-    'Facebook says this feature is being used too fast and has limited it. Stopped. Wait several hours and use a longer delay before trying again.',
+  facebook: {
+    login: 'Facebook is asking you to log in. Log in to facebook.com in this browser, then press Start again.',
+    checkpoint:
+      'Facebook is showing a security check. Complete it yourself in the scraper window, then press Start again with a longer delay.',
+    rate_limited:
+      'Facebook says this feature is being used too fast and has limited it. Stopped. Wait several hours and use a longer delay before trying again.',
+  },
+  instagram: {
+    login:
+      'Instagram is asking you to log in (it also says this when requests come too fast). Make sure you are logged in to instagram.com in this browser, wait a while, then press Start again with a longer delay.',
+    checkpoint:
+      'Instagram is showing a security check. Complete it yourself in the scraper window, then press Start again with a longer delay.',
+    rate_limited:
+      'Instagram says to wait before trying again. Stopped. Wait several hours and use a longer delay before trying again.',
+  },
 };
 
 let running = false;
@@ -151,8 +164,8 @@ function navigate(tabId, url, timeout = 25000) {
   });
 }
 
-async function runInTab(tabId, func, args = []) {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['content/fb.js'] });
+async function runInTab(tabId, func, args = [], files = FB_FILES) {
+  await chrome.scripting.executeScript({ target: { tabId }, files });
   const [res] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
   return res ? res.result : undefined;
 }
@@ -193,6 +206,17 @@ async function scrapeOne(tabId, url, s) {
     };
   }
   return { record: FBS.toRecord(canon, merged) };
+}
+
+/** One Instagram account. The worker tab must already be on instagram.com. */
+async function scrapeIg(tabId, url) {
+  const res = await runInTab(tabId, (u) => globalThis.IGScraper.extractProfile(u), [IGS.usernameOf(url)], IG_FILES);
+  if (!res) throw new Error('Instagram tab did not respond');
+  if (res.blocked) return { blocked: res.blocked };
+  if (res.notFound) return { error: 'account not found' };
+  if (res.skipped) return { skipped: res.skipped };
+  if (res.error) return { error: res.error };
+  return { record: FBS.toRecord(url, res.data) };
 }
 
 function upsertRecord(records, rec) {
@@ -345,9 +369,10 @@ async function runJob(p, s) {
   log(job.message);
 }
 
-function stopForBlock(kind) {
+function stopForBlock(kind, platform = 'facebook') {
+  const name = platform === 'instagram' ? 'Instagram' : 'Facebook';
   job.phase = 'blocked';
-  job.message = BLOCK_MESSAGES[kind] || 'Facebook blocked the request. Stopped.';
+  job.message = (BLOCK_MESSAGES[platform] || {})[kind] || `${name} blocked the request. Stopped.`;
   log(job.message, 'error');
   keepWorkerOpen = true; // leave the window so you can see / resolve it
 }
