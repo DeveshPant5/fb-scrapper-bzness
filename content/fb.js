@@ -210,7 +210,7 @@
   // --------------------------------------------------------- parsing
 
   const LIST_FIELDS = ['emails', 'phones', 'whatsapp', 'websites', 'instagram', 'otherLinks'];
-  const TEXT_FIELDS = ['name', 'kind', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+  const TEXT_FIELDS = ['platform', 'name', 'kind', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
 
   // What kind of account a record came from.
   const KIND_PAGE = 'Page';
@@ -283,6 +283,7 @@
   function parseProfile({ lines, links = [], h1 = '', title = '' }) {
     lines = lines.map(cleanLine).filter(Boolean);
     const r = emptyParsed();
+    r.platform = 'Facebook';
     const all = lines.join('\n');
     const scope = scopeIndexes(lines);
     const scopeText = new Set([...scope].map((i) => lines[i]));
@@ -421,6 +422,7 @@
     return {
       key: canon.toLowerCase(),
       pageUrl: canon,
+      platform: d.platform || 'Facebook',
       name: d.name,
       kind: d.kind,
       category: d.category,
