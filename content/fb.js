@@ -207,7 +207,20 @@
   // --------------------------------------------------------- parsing
 
   const LIST_FIELDS = ['emails', 'phones', 'whatsapp', 'websites', 'instagram', 'otherLinks'];
-  const TEXT_FIELDS = ['name', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+  const TEXT_FIELDS = ['name', 'kind', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+
+  // What kind of account a record came from.
+  const KIND_PAGE = 'Page';
+  const KIND_PRO = 'Professional profile';
+
+  // "Page · Dentist & dental office" on Pages, "Profile · Digital creator" on profiles in
+  // professional mode. Ordinary personal profiles never show this line.
+  const KIND_LINE = /^(Page|Profile)\s*[·•]\s*(.+)$/i;
+
+  function readKindLine(l) {
+    const m = l.match(KIND_LINE);
+    return m ? { kind: /^profile$/i.test(m[1]) ? KIND_PRO : KIND_PAGE, category: m[2].trim() } : null;
+  }
 
   function valueKey(field, v) {
     const s = String(v).trim().toLowerCase();
@@ -287,9 +300,10 @@
       if (line) r.rating = line.replace(/reviews?/i, 'reviews');
     }
 
-    // Category ("Page · Dentist & dental office")
+    // Category and account kind ("Page · Dentist & dental office", "Profile · Digital creator")
     for (const l of lines) {
-      if ((m = l.match(/^Page\s*[·•]\s*(.+)$/i))) { r.category = m[1].trim(); break; }
+      const k = readKindLine(l);
+      if (k) { r.kind = k.kind; r.category = k.category; break; }
     }
 
     // Links: mail/tel/WhatsApp anywhere; websites, socials and maps only from the contact sections.
@@ -323,7 +337,13 @@
         if (!ok) continue;
         assigned.add(i);
         if (field === 'address') { if (!r.address) r.address = v; }
-        else if (field === 'category') { if (!r.category) r.category = v.replace(/^Page\s*[·•]\s*/i, ''); }
+        else if (field === 'category') {
+          if (!r.category) {
+            const k = readKindLine(v);
+            r.category = k ? k.category : v;
+            if (k) r.kind = k.kind;
+          }
+        }
         else if (field === 'websites') addValue(r, 'websites', /^https?:\/\//i.test(v) ? v : 'https://' + v);
         else if (field === 'instagram') addValue(r, 'instagram', /instagram\.com\//i.test(v) ? v : `https://www.instagram.com/${v.replace(/^@/, '')}`);
         else addValue(r, field, v);
@@ -335,7 +355,7 @@
     for (const i of [...scope].sort((a, b) => a - b)) {
       if (assigned.has(i)) continue;
       const l = lines[i];
-      if (/^Page\s*[·•]/i.test(l) || EMAIL_ONE.test(l)) continue;
+      if (KIND_LINE.test(l) || EMAIL_ONE.test(l)) continue;
       if (isPhoneLike(l)) { addValue(r, 'phones', l); continue; }
       if (isUrlLike(l)) {
         const c = classifyLink(/^https?:\/\//i.test(l) ? l : 'https://' + l);
@@ -357,7 +377,7 @@
     const introAt = lines.findIndex((l) => /^Intro$/i.test(l));
     if (introAt >= 0 && lines[introAt + 1]) {
       const l = lines[introAt + 1];
-      if (l.length >= 15 && !/^Page\s*[·•]/i.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
+      if (l.length >= 15 && !KIND_LINE.test(l) && !isPhoneLike(l) && !isUrlLike(l) && !EMAIL_ONE.test(l) && !isAddressLike(l)) {
         r.intro = l;
       }
     }
@@ -389,6 +409,7 @@
       key: canon.toLowerCase(),
       pageUrl: canon,
       name: d.name,
+      kind: d.kind,
       category: d.category,
       email: j(d.emails),
       phone: j(d.phones),
