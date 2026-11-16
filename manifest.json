@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "FB Page Scraper",
-  "version": "1.0.0",
-  "description": "Collect visible profile and contact details from Facebook pages and profiles, with structured CSV export.",
+  "version": "1.1.0",
+  "description": "Collect public contact details from Facebook pages, profiles and Instagram professional accounts and export them to CSV.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "unlimitedStorage"],
-  "host_permissions": ["https://*.facebook.com/*"],
+  "host_permissions": ["https://*.facebook.com/*", "https://*.instagram.com/*"],
   "background": {
     "service_worker": "background.js"
   },

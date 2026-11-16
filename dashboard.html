@@ -9,28 +9,34 @@
 <body>
   <header class="topbar">
     <div class="brand"><img src="icons/icon48.png" alt="" width="28" height="28"><span>FB Page Scraper</span></div>
-    <div class="stat"><strong id="recordCount">0</strong> pages / profiles saved</div>
+    <div class="stat"><strong id="recordCount">0</strong> saved</div>
   </header>
 
   <main class="layout">
     <section class="card" id="setupCard">
-      <h2>1. Find pages and profiles</h2>
+      <h2>1. Find pages and accounts</h2>
       <div class="tabs" role="tablist">
         <button class="tab active" data-mode="keyword" role="tab" aria-selected="true">Keyword search</button>
         <button class="tab" data-mode="urls" role="tab" aria-selected="false">Profile / page URLs</button>
       </div>
 
       <div class="mode-panel" data-panel="keyword">
-        <label for="keyword">Search keyword</label>
+        <label for="searchPlatform">Search on</label>
+        <select id="searchPlatform">
+          <option value="facebook">Facebook pages and profiles</option>
+          <option value="instagram">Instagram accounts</option>
+        </select>
+        <label for="keyword" class="spaced">Search keyword</label>
         <input id="keyword" type="text" placeholder="e.g. dentist in Pune" autocomplete="off">
-        <p class="hint">Searches Facebook for public pages and profiles, including companies, organizations, and creators.</p>
+        <p class="hint" id="searchHint">Searches Facebook for public pages and profiles, including companies, organizations, and creators.</p>
       </div>
 
       <div class="mode-panel" data-panel="urls" hidden>
-        <label for="urls">Facebook page or profile URLs (one per line)</label>
+        <label for="urls">Facebook or Instagram URLs (one per line)</label>
         <textarea id="urls" rows="7" spellcheck="false"
-          placeholder="https://www.facebook.com/examplebusiness&#10;https://www.facebook.com/profile.php?id=100012345678"></textarea>
-        <p class="hint">Tip: click the extension icon while viewing a Facebook page or profile to add it here.</p>
+          placeholder="https://www.facebook.com/examplebusiness&#10;https://www.facebook.com/profile.php?id=100012345678&#10;https://www.instagram.com/examplebusiness&#10;@anotherbusiness"></textarea>
+        <p class="hint">Facebook and Instagram can be mixed. <b>@name</b> means an Instagram account; a bare name means a
+          Facebook page. Tip: click the extension icon while viewing a Facebook Page or an Instagram account to add it here.</p>
       </div>
 
       <div class="settings">
@@ -41,7 +47,7 @@
           <input id="delay" type="number" min="3" max="120" value="6">
         </label>
         <label class="check"><input id="skipExisting" type="checkbox" checked> Skip entries already in the Data Report</label>
-        <label class="check"><input id="thorough" type="checkbox"> Thorough mode: always visit the home tab for extra bio and rating details</label>
+        <label class="check"><input id="thorough" type="checkbox"> Thorough mode (Facebook only): always visit the home tab for extra bio and rating details</label>
       </div>
 
       <div class="actions">
@@ -49,8 +55,9 @@
         <button id="stopBtn" class="btn" disabled>Stop</button>
         <span id="flash" class="flash" role="status"></span>
       </div>
-      <p class="note">Stay logged in to Facebook in this browser. A separate window opens and visits each page.
+      <p class="note">Stay logged in to Facebook and/or Instagram in this browser. A separate window opens and visits each page.
         Keep it visible while the job runs. Reads contact, About, and relevant location / relationship tabs.
+        Also saves Instagram business and creator accounts; personal and private Instagram accounts are skipped.
         Collects explicitly displayed details; unavailable fields remain blank.</p>
     </section>
 
@@ -93,6 +100,7 @@
   </main>
 
   <script src="content/fb.js"></script>
+  <script src="content/ig.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

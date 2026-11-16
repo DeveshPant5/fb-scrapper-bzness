@@ -148,11 +148,14 @@
     }
   }
 
-  /** Undo Facebook's l.facebook.com/l.php?u=… redirect wrapper. */
+  /** Undo Facebook's l.facebook.com/l.php?u=… and Instagram's l.instagram.com/?u=… redirect wrappers. */
   function unwrapLink(href) {
     try {
       const u = new URL(href, FB);
-      if (/^(l|lm)\.facebook\.com$/i.test(u.hostname) && u.pathname.startsWith('/l.php')) {
+      if (
+        (/^(l|lm)\.facebook\.com$/i.test(u.hostname) && u.pathname.startsWith('/l.php')) ||
+        /^l\.instagram\.com$/i.test(u.hostname)
+      ) {
         const target = u.searchParams.get('u');
         return target ? cleanUrl(target) : null;
       }
@@ -207,17 +210,30 @@
   // --------------------------------------------------------- parsing
 
   const LIST_FIELDS = ['emails', 'phones', 'whatsapp', 'websites', 'instagram', 'otherLinks'];
-  const TEXT_FIELDS = ['name', 'profileType', 'age', 'gender', 'relationshipStatus', 'location', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
+  const TEXT_FIELDS = ['platform', 'kind', 'name', 'profileType', 'age', 'gender', 'relationshipStatus', 'location', 'category', 'address', 'likes', 'followers', 'rating', 'intro'];
 
   const REPORT_COLUMNS = [
-    ['name', 'Name'], ['profileType', 'Profile Type'], ['age', 'Age'], ['gender', 'Gender'],
+    ['name', 'Name'], ['platform', 'Platform'], ['kind', 'Type'], ['profileType', 'Profile Type'], ['age', 'Age'], ['gender', 'Gender'],
     ['relationshipStatus', 'Relationship Status'], ['location', 'Current Location'],
     ['category', 'Category'], ['email', 'Email'], ['phone', 'Phone'], ['whatsapp', 'WhatsApp'],
     ['website', 'Website'], ['address', 'Address'], ['likes', 'Likes (displayed)'],
     ['followers', 'Followers (displayed)'], ['rating', 'Rating'], ['instagram', 'Instagram'],
-    ['otherLinks', 'Other Links'], ['intro', 'Bio / Intro'], ['pageUrl', 'Facebook URL'],
+    ['otherLinks', 'Other Links'], ['intro', 'Bio / Intro'], ['pageUrl', 'Profile URL'],
     ['sourceQuery', 'Source Search'], ['scrapedAt', 'Scraped At (UTC)'],
   ];
+
+  // What kind of account a record came from.
+  const KIND_PAGE = 'Page';
+  const KIND_PRO = 'Professional profile';
+
+  // "Page · Dentist & dental office" on Pages, "Profile · Digital creator" on profiles in
+  // professional mode. The category distinguishes professional profiles.
+  const KIND_LINE = /^(Page|Profile)\s*[·•]\s*(.+)$/i;
+
+  function readKindLine(l) {
+    const m = l.match(KIND_LINE);
+    return m ? { kind: /^profile$/i.test(m[1]) ? KIND_PRO : KIND_PAGE, category: m[2].trim() } : null;
+  }
 
   function valueKey(field, v) {
     const s = String(v).trim().toLowerCase();
@@ -308,6 +324,7 @@
   function parseProfile({ lines, links = [], h1 = '', title = '' }) {
     lines = lines.map(cleanLine).filter(Boolean);
     const r = emptyParsed();
+    r.platform = 'Facebook';
     const all = lines.join('\n');
     const scope = scopeIndexes(lines);
     const details = scopeIndexes(lines, DETAIL_START);
@@ -333,9 +350,11 @@
 
     // Pages and professional profiles expose categories in the header.
     for (const l of lines) {
-      if ((m = l.match(/^(Page|Profile)\s*[·•]\s*(.+)$/i))) {
-        r.profileType = /^page$/i.test(m[1]) ? 'Page' : 'Profile';
-        r.category = m[2].trim();
+      const k = readKindLine(l);
+      if (k) {
+        r.kind = k.kind;
+        r.profileType = k.kind === KIND_PAGE ? 'Page' : 'Profile';
+        r.category = k.category;
         break;
       }
     }
@@ -390,7 +409,13 @@
           if (!ok) continue;
           assigned.add(index);
           if (field === 'address') { if (!r.address) r.address = v; }
-          else if (field === 'category') { if (!r.category) r.category = v.replace(/^(?:Page|Profile)\s*[·•]\s*/i, ''); }
+          else if (field === 'category') {
+            if (!r.category) {
+              const k = readKindLine(v);
+              r.category = k ? k.category : v;
+              if (k) { r.kind = k.kind; r.profileType = k.kind === KIND_PAGE ? 'Page' : 'Profile'; }
+            }
+          }
           else if (field === 'birthDate') { if (!birthDate) birthDate = v; }
           else if (field === 'birthYear') { if (!birthYear) birthYear = v; }
           else if (DETAIL_FIELDS.has(field)) { if (!r[field]) r[field] = v; }
@@ -448,6 +473,7 @@
       !r.category &&
       lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
     if (r.isPersonal && !r.profileType) r.profileType = 'Profile';
+    if (r.category && !r.kind && r.profileType === 'Profile') r.kind = KIND_PRO;
 
     return r;
   }
@@ -458,24 +484,31 @@
     const r = emptyParsed();
     LIST_FIELDS.forEach((f) => [...a[f], ...b[f]].forEach((v) => addValue(r, f, v)));
     TEXT_FIELDS.forEach((f) => (r[f] = a[f] || b[f]));
-    r.isPersonal = a.isPersonal || b.isPersonal;
+    // Pages never show "Profile ·" or friend controls, so a profile signal from either visit wins.
+    if (a.kind === KIND_PRO || b.kind === KIND_PRO) r.kind = KIND_PRO;
+    r.isPersonal = !r.category && (a.isPersonal || b.isPersonal);
     return r;
   }
 
   const hasContact = (d) =>
     !!d && (d.emails.length || d.phones.length || d.whatsapp.length || d.websites.length) > 0;
 
+  /** Whether a Page or professional-mode category has been seen. */
+  const isBusiness = (d) => !!d && !!d.category;
+
   function toRecord(canon, d) {
     const j = (arr) => arr.join(' | ');
     return {
       key: canon.toLowerCase(),
       pageUrl: canon,
+      platform: d.platform || 'Facebook',
       name: d.name,
       profileType: d.profileType,
       age: d.age,
       gender: d.gender,
       relationshipStatus: d.relationshipStatus,
       location: d.location,
+      kind: d.kind,
       category: d.category,
       email: j(d.emails),
       phone: j(d.phones),
@@ -502,7 +535,7 @@
 
   function toCsv(records) {
     const rows = [REPORT_COLUMNS.map(([, header]) => header).join(',')];
-    for (const record of records) rows.push(REPORT_COLUMNS.map(([key]) => csvCell(record[key], key)).join(','));
+    for (const record of records) rows.push(REPORT_COLUMNS.map(([key]) => csvCell(key === 'platform' ? record.platform || 'Facebook' : record[key], key)).join(','));
     return '\uFEFF' + rows.join('\r\n');
   }
 
@@ -620,6 +653,13 @@
   }
 
   globalThis.FBScraper = {
+    // shared with content/ig.js
+    cleanLine,
+    unwrapLink,
+    emptyParsed,
+    addValue,
+    EMAIL_G,
+
     normalizePageUrl,
     pageKey,
     aboutUrl,
@@ -631,9 +671,12 @@
     parseProfile,
     mergeParsed,
     hasContact,
+    isBusiness,
     toRecord,
     REPORT_COLUMNS,
     toCsv,
+    KIND_PAGE,
+    KIND_PRO,
     detectBlock,
     extractPageData,
     collectSearchResults,

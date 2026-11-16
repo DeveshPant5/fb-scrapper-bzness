@@ -10,7 +10,7 @@ test('CSV includes every collected parameter in the shared report column order',
   const record = F.toRecord('https://www.facebook.com/example', d);
   assert.deepEqual(Object.keys(record).filter((key) => key !== 'key').sort(), F.REPORT_COLUMNS.map(([key]) => key).sort());
   const csv = F.toCsv([record]);
-  assert.ok(csv.startsWith('\uFEFFName,Profile Type,Age,Gender,Relationship Status,Current Location,'));
+  assert.ok(csv.startsWith('\uFEFFName,Platform,Type,Profile Type,Age,Gender,Relationship Status,Current Location,'));
   const values = csv.split('\r\n')[1].split(',');
   assert.equal(values[F.REPORT_COLUMNS.findIndex(([key]) => key === 'age')], '29');
   assert.equal(values[F.REPORT_COLUMNS.findIndex(([key]) => key === 'location')], 'Pune');
@@ -21,7 +21,8 @@ test('CSV keeps older records exportable with empty cells for newly added fields
   const values = csv.split('\r\n')[1].split(',');
   assert.equal(values.length, F.REPORT_COLUMNS.length);
   assert.equal(values[0], 'Legacy');
-  assert.equal(values[2], '');
+  assert.equal(values[F.REPORT_COLUMNS.findIndex(([key]) => key === 'age')], '');
+  assert.equal(values[F.REPORT_COLUMNS.findIndex(([key]) => key === 'platform')], 'Facebook');
   assert.ok(csv.includes('legacy@example.com'));
   assert.ok(!csv.includes('undefined'));
 });

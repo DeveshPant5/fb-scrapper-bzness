@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 require('../content/fb.js');
+require('../content/ig.js');
 
 const F = globalThis.FBScraper;
 const source = fs.readFileSync(require.resolve('../background.js'), 'utf8');
@@ -12,6 +13,7 @@ function worker(responses) {
   const event = { addListener() {} };
   const context = vm.createContext({
     FBScraper: F,
+    IGScraper: globalThis.IGScraper,
     importScripts() {},
     chrome: {
       runtime: { getURL: (path) => path, onMessage: event },
@@ -126,4 +128,31 @@ test('stop during a pause prevents the next profile navigation', async () => {
 test('keyword search uses general Facebook results', () => {
   const w = worker([]);
   assert.equal(vm.runInContext('SEARCH_URL("Acme & Co")', w.context), 'https://www.facebook.com/search/top/?q=Acme%20%26%20Co');
+});
+
+
+test('mixed URL lists keep both platforms and deduplicate canonical targets', () => {
+  const w = worker([]);
+  const result = vm.runInContext('parseUrlList(["acme", "@Acme", "instagram.com/acme", "facebook.com/acme", "https://example.com/acme"])', w.context);
+  assert.equal(result.invalid, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.targets)), [
+    { platform: 'facebook', url: 'https://www.facebook.com/acme' },
+    { platform: 'instagram', url: 'https://www.instagram.com/acme/' },
+  ]);
+});
+
+test('Instagram records use the shared report schema with empty demographics', async () => {
+  const w = worker([]);
+  const data = globalThis.IGScraper.parseIgUser({ username: 'acme', is_business_account: true });
+  w.context.runInTab = async (_, __, args, files) => {
+    assert.deepEqual(Array.from(args), ['acme']);
+    assert.deepEqual(Array.from(files), ['content/fb.js', 'content/ig.js']);
+    return { data };
+  };
+  const { record } = await vm.runInContext('scrapeIg(1, "https://www.instagram.com/acme/")', w.context);
+  assert.deepEqual(Object.keys(record).filter((key) => key !== 'key').sort(), F.REPORT_COLUMNS.map(([key]) => key).sort());
+  const values = F.toCsv([record]).split('\r\n')[1].split(',');
+  for (const [key, expected] of [['platform', 'Instagram'], ['kind', 'Business account'], ['age', ''], ['gender', '']]) {
+    assert.equal(values[F.REPORT_COLUMNS.findIndex(([field]) => field === key)], expected);
+  }
 });

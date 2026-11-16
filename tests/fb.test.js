@@ -188,6 +188,68 @@ test('creator and organization details use contact sections without reading post
   }
 });
 
+test('a personal profile with no friend controls is still not treated as a business', () => {
+  // Already a friend + friend list hidden: no "Add friend", no "N friends".
+  const r = F.parseProfile({
+    lines: ['Priya Mehta', 'Friends', 'Message', 'Posts', 'About', 'Photos',
+      'Contact info', '98765 43210', 'Mobile', 'priya.m@example.com', 'Email'],
+    h1: 'Priya Mehta',
+  });
+  assert.equal(r.isPersonal, false);
+  assert.equal(F.isBusiness(r), false);
+});
+
+test('parseProfile reads a profile in professional mode', () => {
+  const lines = [
+    'Anita Desai', '12K followers', '•', '310 following', 'Add friend', 'Follow', 'Message',
+    'Posts', 'About', 'Reels', 'Photos',
+    'Intro',
+    'Home bakery in Pune. Custom cakes made to order.',
+    'Profile · Bakery',
+    'Baner Road, Pune, India, 411045',
+    '+91 91234 56789',
+    'orders@anitabakes.in',
+    'anitabakes.in',
+    'Photos', 'See all photos',
+  ];
+  const r = F.parseProfile({ lines, h1: 'Anita Desai' });
+  assert.equal(r.isPersonal, false);
+  assert.ok(F.isBusiness(r));
+  assert.equal(r.kind, F.KIND_PRO);
+  assert.equal(r.category, 'Bakery');
+  assert.equal(r.followers, '12K');
+  assert.equal(r.intro, 'Home bakery in Pune. Custom cakes made to order.');
+  assert.deepEqual(r.phones, ['+91 91234 56789']);
+  assert.deepEqual(r.emails, ['orders@anitabakes.in']);
+  assert.deepEqual(r.websites, ['https://anitabakes.in/']);
+  assert.equal(r.address, 'Baner Road, Pune, India, 411045');
+});
+
+test('Pages are tagged as Pages', () => {
+  const r = F.parseProfile({ lines: ['Intro', 'Page · Cafe', 'hello@cafe.in'], h1: 'Cafe' });
+  assert.equal(r.kind, F.KIND_PAGE);
+  assert.ok(F.isBusiness(r));
+});
+
+test('a professional profile whose About tab lacks the category is confirmed by the home tab', () => {
+  // About tab: labelled contacts plus friend controls, but no "Profile ·" line.
+  const about = F.parseProfile({
+    lines: ['Anita Desai', '2.1K friends', 'Add friend', 'Contact info', '+91 91234 56789', 'Mobile', 'orders@anitabakes.in', 'Email'],
+    h1: 'Anita Desai',
+  });
+  assert.equal(about.isPersonal, true);
+  assert.equal(F.isBusiness(about), false);
+
+  const home = F.parseProfile({ lines: ['Anita Desai', 'Add friend', 'Intro', 'Profile · Bakery', 'anitabakes.in'], h1: 'Anita Desai' });
+  const m = F.mergeParsed(about, home);
+  assert.equal(m.isPersonal, false);
+  assert.ok(F.isBusiness(m));
+  assert.equal(m.kind, F.KIND_PRO);
+  assert.deepEqual(m.emails, ['orders@anitabakes.in']);
+  assert.deepEqual(m.phones, ['+91 91234 56789']);
+  assert.equal(F.toRecord('https://www.facebook.com/anita.desai', m).kind, F.KIND_PRO);
+});
+
 test('mergeParsed + toRecord combine two visits without duplicates', () => {
   const a = F.parseProfile({ lines: ['Contact info', '098765 43210', 'Mobile'], h1: 'Biz' });
   const b = F.parseProfile({ lines: ['Intro', 'Page · Shop', '+91 98765 43210', 'shop@biz.in'], h1: 'Biz' });

@@ -4,9 +4,20 @@
 
   const $ = (id) => document.getElementById(id);
   const FBS = globalThis.FBScraper;
+  const IGS = globalThis.IGScraper;
   const MAX_ROWS = 500;
 
+  const SEARCH_HINTS = {
+    facebook: 'Searches Facebook for public pages and profiles, including companies, organizations, and creators.',
+    instagram:
+      'Runs an Instagram account search. It matches account names and usernames (not bios or locations) and ' +
+      'returns about 50 accounts at most. Personal and private accounts are skipped.',
+  };
+
   const CSV_COLUMNS = FBS.REPORT_COLUMNS;
+
+  // Records saved before Instagram support have no platform: they're all Facebook.
+  const val = (r, k) => (k === 'platform' ? r.platform || 'Facebook' : r[k]);
 
   let mode = 'keyword';
   let records = [];
@@ -18,6 +29,7 @@
   function readSettings() {
     return {
       mode,
+      searchPlatform: $('searchPlatform').value,
       keyword: $('keyword').value,
       limit: Number($('limit').value),
       delay: Number($('delay').value),
@@ -27,6 +39,8 @@
   }
 
   function applySettings(s) {
+    if (s.searchPlatform === 'instagram' || s.searchPlatform === 'facebook') $('searchPlatform').value = s.searchPlatform;
+    updateSearchHint();
     if (s.keyword) $('keyword').value = s.keyword;
     if (s.limit) $('limit').value = s.limit;
     if (s.delay) $('delay').value = s.delay;
@@ -36,6 +50,12 @@
   }
 
   const saveSettings = () => chrome.storage.local.set({ settings: readSettings() });
+
+  function updateSearchHint() {
+    const ig = $('searchPlatform').value === 'instagram';
+    $('searchHint').textContent = SEARCH_HINTS[ig ? 'instagram' : 'facebook'];
+    $('keyword').placeholder = ig ? 'e.g. dental clinic pune' : 'e.g. dentist in Pune';
+  }
 
   function setMode(m) {
     mode = m;
@@ -56,7 +76,7 @@
   async function consumePrefill(url) {
     const box = $('urls');
     const lines = box.value.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (!lines.some((l) => FBS.pageKey(l) === FBS.pageKey(url))) lines.push(url);
+    if (!lines.some((l) => IGS.targetKey(l) === IGS.targetKey(url))) lines.push(url);
     box.value = lines.join('\n') + '\n';
     setMode('urls');
     saveSettings();
@@ -72,7 +92,7 @@
     $('startBtn').disabled = isRunning;
     $('stopBtn').disabled = !isRunning;
     $('clearBtn').disabled = isRunning;
-    ['keyword', 'urls', 'limit', 'delay', 'skipExisting', 'thorough'].forEach((id) => ($(id).disabled = isRunning));
+    ['searchPlatform', 'keyword', 'urls', 'limit', 'delay', 'skipExisting', 'thorough'].forEach((id) => ($(id).disabled = isRunning));
     document.querySelectorAll('.tab').forEach((t) => (t.disabled = isRunning));
 
     const status = $('statusText');
@@ -127,7 +147,7 @@
     const rows = records
       .slice()
       .reverse()
-      .filter((r) => !q || CSV_COLUMNS.some(([k]) => String(r[k] || '').toLowerCase().includes(q)));
+      .filter((r) => !q || CSV_COLUMNS.some(([k]) => String(val(r, k) || '').toLowerCase().includes(q)));
 
     const body = $('rows');
     if (!rows.length) {
@@ -145,7 +165,7 @@
           tr.append(...CSV_COLUMNS.map(([key]) => {
             const href = key === 'name' || key === 'pageUrl' ? r.pageUrl
               : key === 'website' || key === 'instagram' ? (r[key] || '').split(' | ')[0] : '';
-            return cell(key === 'name' ? r.name || r.pageUrl : r[key], href);
+            return cell(key === 'name' ? r.name || r.pageUrl : val(r, key), href);
           }));
           return tr;
         })
@@ -162,7 +182,7 @@
     const blob = new Blob([FBS.toCsv(records)], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `facebook-pages-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.csv`;
+    a.download = `contacts-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
@@ -208,7 +228,7 @@
       if (!msg.keyword) return flash('Enter a keyword.');
     } else {
       msg.urls = $('urls').value.split(/[\s,]+/).filter(Boolean);
-      if (!msg.urls.length) return flash('Paste at least one page URL.');
+      if (!msg.urls.length) return flash('Paste at least one URL.');
     }
     const res = await chrome.runtime.sendMessage(msg);
     if (!res || !res.ok) flash((res && res.error) || 'Could not start.');
@@ -254,7 +274,8 @@
         saveSettings();
       })
     );
-    ['keyword', 'limit', 'delay', 'skipExisting', 'thorough'].forEach((id) => $(id).addEventListener('change', saveSettings));
+    ['searchPlatform', 'keyword', 'limit', 'delay', 'skipExisting', 'thorough'].forEach((id) => $(id).addEventListener('change', saveSettings));
+    $('searchPlatform').addEventListener('change', updateSearchHint);
     $('keyword').addEventListener('keydown', (e) => e.key === 'Enter' && !$('startBtn').disabled && start());
     $('startBtn').addEventListener('click', start);
     $('stopBtn').addEventListener('click', stop);
