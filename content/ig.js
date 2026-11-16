@@ -20,6 +20,8 @@
   const IG = 'https://www.instagram.com';
   const KIND_BUSINESS = 'Business account';
   const KIND_CREATOR = 'Creator account';
+  // Instagram's public web-app id, sent by instagram.com itself on every API call.
+  const WEB_APP_ID = '936619743392459';
 
   // First path segments that are Instagram features, never usernames.
   const RESERVED = new Set([
@@ -28,6 +30,8 @@
     'meta_verified', 'nametag', 'oauth', 'p', 'popular', 'press', 'privacy', 'qr', 'reel', 'reels',
     'session', 'signup', 'static', 'stories', 'tags', 'terms', 'threads', 'tv', 'web', 'your_activity',
   ]);
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---------------------------------------------------------------- URLs
 
@@ -185,6 +189,113 @@
     return r;
   }
 
+  // ------------------------------------------- DOM (Instagram tab only)
+
+  /** 'login' | 'checkpoint' | null, from the page the tab is on. */
+  function detectBlock() {
+    const p = location.pathname;
+    if (/^\/(challenge|accounts\/suspended|accounts\/disabled)\b/.test(p)) return 'checkpoint';
+    if (/^\/accounts\/login\b/.test(p)) return 'login';
+    if (document.querySelector('input[name="password"]') && !/(^|;\s*)ds_user_id=/.test(document.cookie)) return 'login';
+    return null;
+  }
+
+  function cookie(name) {
+    const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  /** Same-origin GET with the headers instagram.com's own scripts send. */
+  async function igFetch(path) {
+    const headers = { Accept: 'application/json', 'X-IG-App-ID': WEB_APP_ID, 'X-Requested-With': 'XMLHttpRequest' };
+    const csrf = cookie('csrftoken');
+    if (csrf) headers['X-CSRFToken'] = csrf;
+    try { headers['X-IG-WWW-Claim'] = sessionStorage.getItem('www-claim-v2') || '0'; } catch { /* storage blocked */ }
+    let res;
+    try {
+      res = await fetch(path, { credentials: 'include', headers });
+    } catch (e) {
+      return { status: 0, json: null, url: '', error: e.message };
+    }
+    let json = null;
+    try { json = JSON.parse(await res.text()); } catch { /* HTML (login page etc.) */ }
+    return { status: res.status, json, url: res.url };
+  }
+
+  /** 'login' | 'checkpoint' | 'rate_limited' | null, from an API response. */
+  function responseBlock({ status, json, url }) {
+    const msg = json ? `${json.message || ''} ${json.error_type || ''} ${json.error_title || ''}` : '';
+    if ((json && (json.checkpoint_url || json.challenge)) || /checkpoint_required|challenge_required/i.test(msg) || /\/challenge\//.test(url || '')) {
+      return 'checkpoint';
+    }
+    // Instagram also answers "require_login" when a logged-in session is going too fast.
+    if (status === 401 || (json && json.require_login) || /login_required/i.test(msg) || /\/accounts\/login/.test(url || '')) {
+      return 'login';
+    }
+    if (status === 429 || /please wait a few minutes|feedback_required|try again later|rate.?limit/i.test(msg)) return 'rate_limited';
+    return null;
+  }
+
+  /** Reads one profile. Returns { data } | { skipped } | { notFound } | { blocked } | { error }. */
+  async function extractProfile(username) {
+    let blocked = detectBlock();
+    if (blocked) return { blocked };
+
+    const r1 = await igFetch(`/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`);
+    if (r1.error) return { error: `network error (${r1.error})` };
+    if ((blocked = responseBlock(r1))) return { blocked };
+    const user = r1.json && r1.json.data && r1.json.data.user;
+    if (!user) {
+      if (r1.status === 404 || (r1.status === 200 && r1.json)) return { notFound: true };
+      return { error: `Instagram returned HTTP ${r1.status}${r1.json ? '' : ' without JSON (its profile API may have changed)'}` };
+    }
+    if (!isProfessional(user)) {
+      return { skipped: user.is_private ? 'private personal account' : 'personal account (only business and creator accounts are saved)' };
+    }
+
+    // The email/phone behind the profile's "Contact" button usually come from a second endpoint.
+    let info = null;
+    if (user.id && !(user.business_email && user.business_phone_number)) {
+      await sleep(1000 + Math.random() * 1000);
+      const r2 = await igFetch(`/api/v1/users/${encodeURIComponent(user.id)}/info/`);
+      if ((blocked = responseBlock(r2))) return { blocked };
+      if (r2.json && r2.json.user) info = r2.json.user;
+    }
+    return { data: parseIgUser(user, info) };
+  }
+
+  /** Instagram's account search (matches names and usernames). Returns { urls } | { blocked } | { error }. */
+  async function searchAccounts(query, limit, skipKeys = []) {
+    const blocked0 = detectBlock();
+    if (blocked0) return { blocked: blocked0, urls: [] };
+
+    const q = encodeURIComponent(query);
+    const paths = [
+      `/api/v1/web/search/topsearch/?context=blended&query=${q}&include_reel=false`,
+      `/web/search/topsearch/?context=blended&query=${q}&include_reel=false`,
+    ];
+    let users = null;
+    for (const path of paths) {
+      const res = await igFetch(path);
+      const blocked = responseBlock(res);
+      if (blocked) return { blocked, urls: [] };
+      if (res.json && Array.isArray(res.json.users)) { users = res.json.users; break; }
+    }
+    if (!users) return { error: "Instagram search didn't return a usable response. Paste profile URLs instead.", urls: [] };
+
+    const skip = new Set(skipKeys);
+    const found = new Map();
+    for (const entry of users) {
+      const u = (entry && entry.user) || entry;
+      if (!u || !u.username || u.is_private) continue; // private accounts are always personal
+      const url = validUser(u.username);
+      if (!url || skip.has(url) || found.has(url)) continue;
+      found.set(url, { url, name: u.full_name || u.username });
+      if (found.size >= limit) break;
+    }
+    return { urls: [...found.values()] };
+  }
+
   globalThis.IGScraper = {
     HOME: `${IG}/`,
     KIND_BUSINESS,
@@ -195,5 +306,8 @@
     usernameOf,
     isProfessional,
     parseIgUser,
+    detectBlock,
+    extractProfile,
+    searchAccounts,
   };
 })();
