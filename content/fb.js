@@ -148,11 +148,14 @@
     }
   }
 
-  /** Undo Facebook's l.facebook.com/l.php?u=… redirect wrapper. */
+  /** Undo Facebook's l.facebook.com/l.php?u=… and Instagram's l.instagram.com/?u=… redirect wrappers. */
   function unwrapLink(href) {
     try {
       const u = new URL(href, FB);
-      if (/^(l|lm)\.facebook\.com$/i.test(u.hostname) && u.pathname.startsWith('/l.php')) {
+      if (
+        (/^(l|lm)\.facebook\.com$/i.test(u.hostname) && u.pathname.startsWith('/l.php')) ||
+        /^l\.instagram\.com$/i.test(u.hostname)
+      ) {
         const target = u.searchParams.get('u');
         return target ? cleanUrl(target) : null;
       }
@@ -547,6 +550,13 @@
   }
 
   globalThis.FBScraper = {
+    // shared with content/ig.js
+    cleanLine,
+    unwrapLink,
+    emptyParsed,
+    addValue,
+    EMAIL_G,
+
     normalizePageUrl,
     pageKey,
     aboutUrl,
