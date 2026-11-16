@@ -382,10 +382,11 @@
       }
     }
 
-    // A personal profile, not a business page: never stored.
-    r.isPersonal =
-      !r.category &&
-      lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
+    // Friend controls only appear on profiles. With a category that's a professional-mode
+    // profile; without one it's an ordinary personal profile, which is never stored.
+    const friendSignals = lines.some((l) => /^Add friend$/i.test(l) || /^[\d.,]+\s*K?\s+(mutual\s+)?friends$/i.test(l));
+    if (r.category && !r.kind && friendSignals) r.kind = KIND_PRO;
+    r.isPersonal = !r.category && friendSignals;
 
     return r;
   }
@@ -396,12 +397,21 @@
     const r = emptyParsed();
     LIST_FIELDS.forEach((f) => [...a[f], ...b[f]].forEach((v) => addValue(r, f, v)));
     TEXT_FIELDS.forEach((f) => (r[f] = a[f] || b[f]));
-    r.isPersonal = a.isPersonal || b.isPersonal;
+    // Pages never show "Profile ·" or friend controls, so a profile signal from either visit wins.
+    if (a.kind === KIND_PRO || b.kind === KIND_PRO) r.kind = KIND_PRO;
+    r.isPersonal = !r.category && (a.isPersonal || b.isPersonal);
     return r;
   }
 
   const hasContact = (d) =>
     !!d && (d.emails.length || d.phones.length || d.whatsapp.length || d.websites.length) > 0;
+
+  /**
+   * True once a Page or professional-mode category has been seen. Only these are stored, so a
+   * personal profile that hides its friend controls (already a friend, friend list hidden,
+   * friend requests off) is still never saved.
+   */
+  const isBusiness = (d) => !!d && !!d.category;
 
   function toRecord(canon, d) {
     const j = (arr) => arr.join(' | ');
@@ -492,7 +502,9 @@
     }));
     const h1 = (main.querySelector('h1') || {}).innerText || '';
     const data = parseProfile({ lines, links, h1, title: document.title });
-    if (data.isPersonal) return { isPersonal: true };
+    // Returned even when it looks personal: professional-mode profiles sometimes show their
+    // "Profile · <category>" line only on the home tab. The worker discards anything for which
+    // isBusiness() never becomes true; it is not stored or logged.
     return { data, finalUrl: location.href };
   }
 
@@ -545,7 +557,10 @@
     parseProfile,
     mergeParsed,
     hasContact,
+    isBusiness,
     toRecord,
+    KIND_PAGE,
+    KIND_PRO,
     detectBlock,
     extractPageData,
     collectSearchResults,
